@@ -4,73 +4,90 @@
     var state = {
         token: localStorage.getItem('notary_token') || null,
         walletAddress: localStorage.getItem('notary_wallet') || null,
-		userEmail: localStorage.getItem('notary_email') || null,
-        currentDoc: null, inviteToken: null, inviteDoc: null,
-        uploadedFile: null, uploadedHash: null,
-        feeKas: 5, merchantId: null, signatureFields: []
+        userEmail: localStorage.getItem('notary_email') || null,
+        currentDoc: null,
+        inviteToken: null,
+        inviteDoc: null,
+        uploadedFile: null,
+        uploadedHash: null,
+        feeKas: 5,
+        merchantId: null,
+        pendingDocUuid: null,
+        pendingSig: null,
+        pendingInviteUrl: null,
+        archivePage: 1
     };
 
     var API = '/api';
     var EXPLORER = 'https://explorer.kaspa.org/txs/';
 
+    // ── Helpers ──
     function $(id) { return document.getElementById(id); }
     function show(el) { if (typeof el === 'string') el = $(el); if (el) el.classList.remove('hidden'); }
     function hide(el) { if (typeof el === 'string') el = $(el); if (el) el.classList.add('hidden'); }
-    function showScreen(id) { document.querySelectorAll('.screen').forEach(function(s) { s.classList.add('hidden'); }); show(id); window.scrollTo(0,0); }
+    function showScreen(id) { document.querySelectorAll('.screen').forEach(function(s) { s.classList.add('hidden'); }); show(id); window.scrollTo(0, 0); }
     function showLoading(t) { $('loading-text').textContent = t || 'Processing...'; show('loading'); }
     function hideLoading() { hide('loading'); }
 
     function toast(msg, type) {
-        var t = $('toast'); t.textContent = msg; t.className = 'toast ' + (type || 'info');
-        show(t); setTimeout(function() { hide(t); }, 4000);
+        var t = $('toast');
+        t.textContent = msg;
+        t.className = 'toast ' + (type || 'info');
+        show(t);
+        setTimeout(function() { hide(t); }, 4000);
     }
 
-    function truncAddr(a) { return a ? a.slice(0,14) + '...' + a.slice(-6) : ''; }
-    function formatDate(d) { if (!d) return ''; var o = new Date(d); return o.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) + ' at ' + o.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }
-    function formatDateShort(d) { return d ? new Date(d).toISOString().slice(0,10) : ''; }
-    function formatSize(b) { if (b<1024) return b+' B'; if (b<1048576) return (b/1024).toFixed(0)+' KB'; return (b/1048576).toFixed(1)+' MB'; }
-    function sha256(buf) { return crypto.subtle.digest('SHA-256',buf).then(function(h) { return Array.from(new Uint8Array(h)).map(function(b){return b.toString(16).padStart(2,'0');}).join(''); }); }
-    function esc(s) { var d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+    function truncAddr(a) { return a ? a.slice(0, 14) + '...' + a.slice(-6) : ''; }
+    function formatDate(d) { if (!d) return ''; var o = new Date(d); return o.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' at ' + o.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); }
+    function formatDateShort(d) { return d ? new Date(d).toISOString().slice(0, 10) : ''; }
+    function formatSize(b) { if (b < 1024) return b + ' B'; if (b < 1048576) return (b / 1024).toFixed(0) + ' KB'; return (b / 1048576).toFixed(1) + ' MB'; }
+    function sha256(buf) { return crypto.subtle.digest('SHA-256', buf).then(function(h) { return Array.from(new Uint8Array(h)).map(function(b) { return b.toString(16).padStart(2, '0'); }).join(''); }); }
+    function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+    function categoryLabel(c) {
+        return { contract: 'Contract', agreement: 'Agreement', nda: 'NDA', patent: 'Patent / IP', certificate: 'Certificate', other: 'Other' }[c] || 'Contract';
+    }
 
     function statusLabel(s) {
-        return {draft:'Draft',paid:'Paid — Ready to Sign',pending_cosign:'Awaiting Countersignature',pending_finalization:'Ready to Finalize',notarized:'Notarized',expired:'Expired',cancelled:'Cancelled'}[s]||s;
+        return { draft: 'Draft', paid: 'Paid - Ready to Sign', pending_cosign: 'Awaiting Countersignature', pending_finalization: 'Ready to Finalize', notarized: 'Notarized', expired: 'Expired', cancelled: 'Cancelled' }[s] || s;
     }
 
     function statusBanner(s) {
-        var c = s==='notarized'?'confirmed':(s==='pending_cosign'||s==='pending_finalization')?'pending':s==='paid'?'paid':'draft';
+        var c = s === 'notarized' ? 'confirmed' : (s === 'pending_cosign' || s === 'pending_finalization') ? 'pending' : s === 'paid' ? 'paid' : 'draft';
         var icons = {
-            draft:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
-            paid:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg>',
-            pending:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>',
-            confirmed:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>'
+            draft: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
+            paid: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg>',
+            pending: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>',
+            confirmed: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>'
         };
-        return '<div class="status-banner '+c+'" id="doc-status-banner">'+icons[c]+' '+statusLabel(s)+'</div>';
+        return '<div class="status-banner ' + c + '" id="doc-status-banner">' + icons[c] + ' ' + statusLabel(s) + '</div>';
     }
 
-	function api(ep, opts) {
+    function api(ep, opts) {
         opts = opts || {};
         var h = opts.headers || {};
         if (state.token && !h['Authorization']) h['Authorization'] = 'Bearer ' + state.token;
         if (!(opts.body instanceof FormData) && !h['Content-Type']) h['Content-Type'] = 'application/json';
-        return fetch(API+ep, {method:opts.method||'GET', headers:h, body:opts.body}).then(function(r) {
+        return fetch(API + ep, { method: opts.method || 'GET', headers: h, body: opts.body }).then(function(r) {
             if (r.status === 401) { disconnect(); throw new Error('Session expired'); }
-            return r.json().then(function(d) { if (!r.ok) throw new Error(d.error||'Request failed'); return d; });
+            return r.json().then(function(d) { if (!r.ok) throw new Error(d.error || 'Request failed'); return d; });
         });
     }
 
-    // ── PDF ──
+    // ── PDF Rendering ──
     function renderPdf(url, canvasId) {
         if (!window.pdfjsLib) return Promise.resolve();
-        var h = {}; if (state.token) h['Authorization'] = 'Bearer ' + state.token;
+        var h = {};
+        if (state.token) h['Authorization'] = 'Bearer ' + state.token;
         var canvas = $(canvasId);
+        if (!canvas) return Promise.resolve();
         var container = canvas.parentElement;
 
-        return fetch(url,{headers:h}).then(function(r){return r.arrayBuffer();}).then(function(d) {
-            return pdfjsLib.getDocument({data:d}).promise;
+        return fetch(url, { headers: h }).then(function(r) { return r.arrayBuffer(); }).then(function(d) {
+            return pdfjsLib.getDocument({ data: d }).promise;
         }).then(function(pdf) {
-            // Clear container, keep first canvas for page 1
             var extras = container.querySelectorAll('.pdf-page-extra');
-            extras.forEach(function(e){e.remove();});
+            extras.forEach(function(e) { e.remove(); });
 
             var cw = container.clientWidth || 600;
             var renderPage = function(num) {
@@ -87,23 +104,21 @@
                         c.style.borderTop = '1px solid #e2e5ea';
                         container.appendChild(c);
                     }
-                    var uv = page.getViewport({scale:1});
+                    var uv = page.getViewport({ scale: 1 });
                     var sc = cw / uv.width;
-                    var vp = page.getViewport({scale:sc});
+                    var vp = page.getViewport({ scale: sc });
                     c.width = vp.width;
                     c.height = vp.height;
-                    return page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
+                    return page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
                 });
             };
 
             var chain = Promise.resolve();
             for (var i = 1; i <= pdf.numPages; i++) {
-                (function(n) {
-                    chain = chain.then(function() { return renderPage(n); });
-                })(i);
+                (function(n) { chain = chain.then(function() { return renderPage(n); }); })(i);
             }
             return chain;
-        }).catch(function(e){console.error('PDF render:',e);});
+        }).catch(function(e) { console.error('PDF render:', e); });
     }
 
     // ── Wallet ──
@@ -117,44 +132,56 @@
                 return;
             }
             detectWallet().then(function(addr) {
-                if (!addr) { toast('No Kaspa wallet detected. Install KasWare, Kastle, or Keystone extension.','error'); resolve(false); return; }
+                if (!addr) { toast('No Kaspa wallet detected. Install KasWare, Kastle, or Keystone extension.', 'error'); resolve(false); return; }
                 finishAuth(addr).then(resolve);
-            }).catch(function(e) { toast('Wallet error: '+e.message,'error'); resolve(false); });
+            }).catch(function(e) { toast('Wallet error: ' + e.message, 'error'); resolve(false); });
         });
     }
 
     function detectWallet() {
-        if (window.kasware) return window.kasware.requestAccounts().then(function(a){return a[0];});
-        if (window.kastle) return window.kastle.connect('mainnet').then(function(){return window.kastle.getAccount();}).then(function(a){return a.address;});
-        if (window.keystone) return window.keystone.requestAccounts().then(function(a){return Array.isArray(a)?a[0]:a;});
+        if (window.kasware) return window.kasware.requestAccounts().then(function(a) { return a[0]; });
+        if (window.kastle) return window.kastle.connect('mainnet').then(function() { return window.kastle.getAccount(); }).then(function(a) { return a.address; });
+        if (window.keystone) return window.keystone.requestAccounts().then(function(a) { return Array.isArray(a) ? a[0] : a; });
         return Promise.resolve(null);
     }
 
-	function finishAuth(address) {
-        return api('/auth/connect',{method:'POST',body:JSON.stringify({address:address})}).then(function(d) {
-            state.token=d.token; state.walletAddress=d.address; state.userEmail=d.email||null;
-            localStorage.setItem('notary_token',d.token); localStorage.setItem('notary_wallet',d.address);
-            if (d.email) localStorage.setItem('notary_email',d.email);
-            updateHeader(); return true;
-        }).catch(function(e) { toast('Auth failed: '+e.message,'error'); return false; });
+    function finishAuth(address) {
+        return api('/auth/connect', { method: 'POST', body: JSON.stringify({ address: address }) }).then(function(d) {
+            state.token = d.token;
+            state.walletAddress = d.address;
+            state.userEmail = d.email || null;
+            localStorage.setItem('notary_token', d.token);
+            localStorage.setItem('notary_wallet', d.address);
+            if (d.email) localStorage.setItem('notary_email', d.email);
+            updateHeader();
+            return true;
+        }).catch(function(e) { toast('Auth failed: ' + e.message, 'error'); return false; });
     }
 
-	function disconnect() {
-        state.token=null; state.walletAddress=null; state.userEmail=null;
-        localStorage.removeItem('notary_token'); localStorage.removeItem('notary_wallet'); localStorage.removeItem('notary_email');
-        localStorage.removeItem('notary_token'); localStorage.removeItem('notary_wallet');
+    function disconnect() {
+        state.token = null;
+        state.walletAddress = null;
+        state.userEmail = null;
+        localStorage.removeItem('notary_token');
+        localStorage.removeItem('notary_wallet');
+        localStorage.removeItem('notary_email');
         if (window.KasperoPay && KasperoPay.disconnect) KasperoPay.disconnect();
-        updateHeader(); loadArchive();
+        updateHeader();
+        loadArchive();
     }
-	
-	function updateHeader() {
+
+    function updateHeader() {
         if (state.walletAddress) {
-            $('header-wallet-addr').textContent=truncAddr(state.walletAddress);
-            show('header-wallet'); hide('btn-connect');
-            show('nav-my-docs'); show('nav-new-doc');
+            $('header-wallet-addr').textContent = truncAddr(state.walletAddress);
+            show('header-wallet');
+            hide('btn-connect');
+            show('nav-auth');
+            if ($('archive-hint')) hide('archive-hint');
         } else {
-            hide('header-wallet'); show('btn-connect');
-            hide('nav-my-docs'); hide('nav-new-doc');
+            hide('header-wallet');
+            show('btn-connect');
+            hide('nav-auth');
+            if ($('archive-hint')) show('archive-hint');
         }
     }
 
@@ -163,92 +190,343 @@
         if ($(id)) $(id).classList.add('active');
     }
 
-    function loadDashboard() {
-        showScreen('screen-dashboard'); setActiveNav('nav-my-docs');
-        api('/documents').then(function(d) {
-            var list = $('dash-list'); list.innerHTML = '';
-            if (!d.documents.length) {
-                list.innerHTML='<div class="dash-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg><p>No documents yet</p><p class="small">Create your first notarized agreement.</p></div>';
+    // ════════════════════════════════════════════
+    // ARCHIVE (with search + filter + pagination)
+    // ════════════════════════════════════════════
+
+    function loadArchive() {
+        showScreen('screen-archive');
+        setActiveNav('nav-archive');
+        state.archivePage = 1;
+        fetchArchive();
+    }
+
+    function fetchArchive() {
+        var q = $('archive-search-input') ? $('archive-search-input').value.trim() : '';
+        var category = $('archive-filter-category') ? $('archive-filter-category').value : 'all';
+        var period = $('archive-filter-period') ? $('archive-filter-period').value : 'all';
+        var page = state.archivePage || 1;
+
+        var params = '?page=' + page + '&limit=20';
+        if (q) params += '&q=' + encodeURIComponent(q);
+        if (category !== 'all') params += '&category=' + category;
+        if (period !== 'all') params += '&period=' + period;
+
+        api('/archive' + params).then(function(d) {
+            var list = $('archive-list');
+            list.innerHTML = '';
+
+            if (!d.documents || !d.documents.length) {
+                list.innerHTML = '<div class="dash-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg><p>No documents found</p></div>';
+                hide('archive-pagination');
                 return;
             }
+
             d.documents.forEach(function(doc) {
-                var el = document.createElement('div'); el.className='dash-item';
-                el.onclick=function(){history.pushState(null,'','/document/'+doc.doc_uuid);loadDocument(doc.doc_uuid);};
-                el.innerHTML='<div class="dash-item-left"><div class="dash-item-title">'+esc(doc.title)+'</div><div class="dash-item-meta">'+esc(doc.counterparty_email)+' · '+formatDate(doc.created_at)+'</div></div><span class="status-pill '+doc.status+'">'+statusLabel(doc.status)+'</span>';
+                var el = document.createElement('div');
+                el.className = 'archive-card' + (doc.is_public ? ' public' : '');
+                var title = doc.title ? esc(doc.title) : '<span class="private-label">Private Document</span>';
+                var hashShort = (doc.original_hash || '').slice(0, 16) + '...';
+                var isSingle = !doc.party_b;
+
+                // Thumbnail preview area
+                var preview = '';
+                if (doc.is_public) {
+                    preview = '<div class="archive-card-preview" id="preview-' + doc.doc_uuid + '"><canvas class="archive-thumb"></canvas></div>';
+                } else {
+                    preview = '<div class="archive-card-preview archive-card-private">' +
+                        '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>' +
+                        '<span>Private Document</span>' +
+                        '</div>';
+                }
+
+                var html = preview;
+                html += '<div class="archive-card-body">';
+                html += '<div class="archive-card-top">';
+                html += '<div class="archive-card-title">' + title + '</div>';
+                html += '<div class="archive-card-badges">';
+                html += '<span class="category-pill">' + categoryLabel(doc.category) + '</span>';
+                html += '<span class="status-pill notarized">Sealed</span>';
+                html += '</div>';
+                html += '</div>';
+                html += '<div class="archive-card-meta">';
+                html += '<span class="mono" style="font-size:11px;">' + esc(hashShort) + '</span>';
+                html += '<span>' + formatDate(doc.notarized_at) + '</span>';
+                html += '</div>';
+                html += '<div class="archive-card-parties">';
+                html += '<span>Party A: ' + truncAddr(doc.party_a) + '</span>';
+                if (isSingle) {
+                    html += '<span class="single-label">Single signature</span>';
+                } else {
+                    html += '<span>Party B: ' + truncAddr(doc.party_b) + '</span>';
+                }
+                html += '</div>';
+                if (doc.seal_tx_id) {
+                    html += '<div class="archive-card-tx"><a href="' + EXPLORER + doc.seal_tx_id + '" target="_blank" class="mono">Seal TX: ' + doc.seal_tx_id.slice(0, 16) + '...</a></div>';
+                }
+                html += '</div>'; // close archive-card-body
+                el.innerHTML = html;
+                el.style.cursor = 'pointer';
+                el.onclick = function() { history.pushState(null, '', '/proof/' + doc.doc_uuid); loadProof(doc.doc_uuid); };
                 list.appendChild(el);
+
+                // Render PDF thumbnail for public docs
+                if (doc.is_public) {
+                    renderArchiveThumb(doc.doc_uuid);
+                }
             });
-        }).catch(function(e){toast(e.message,'error');});
+
+            // Pagination
+            var pg = d.pagination;
+            if (pg && pg.pages > 1) {
+                show('archive-pagination');
+                $('archive-page-info').textContent = 'Page ' + pg.page + ' of ' + pg.pages + ' (' + pg.total + ' documents)';
+                $('archive-prev').disabled = pg.page <= 1;
+                $('archive-next').disabled = pg.page >= pg.pages;
+            } else {
+                hide('archive-pagination');
+            }
+        }).catch(function(e) { console.error('Archive load error:', e); });
     }
 
-	// ── Create (unified: upload + sign + pay) ──
-    function showCreate() {
-        showScreen('screen-create'); setActiveNav('nav-new-doc'); state.uploadedFile=null; state.uploadedHash=null;
-		$('input-title').value=''; $('input-email').value=''; $('input-note').value='';
-        $('input-creator-email').value = state.userEmail || '';
-        $('create-sig-name').value=''; $('create-agree').checked=false;
-        if ($('input-is-public')) $('input-is-public').checked=false;
-        if ($('input-title-public')) $('input-title-public').checked=true;
-        hide('file-preview'); show('upload-zone'); $('btn-create-submit').disabled=true;
-        hide('create-step-sign'); hide('payment-section'); hide('create-post-sign');
-        $('btn-create-submit').textContent='Upload, Sign & Pay';
-        $('cost-fee').textContent=state.feeKas+' KAS';
-    }
+    function renderArchiveThumb(uuid) {
+        if (!window.pdfjsLib) return;
+        var container = document.getElementById('preview-' + uuid);
+        if (!container) return;
+        var canvas = container.querySelector('canvas');
+        if (!canvas) return;
 
-    function checkCreate() {
-        var t=$('input-title').value.trim(), e=$('input-email').value.trim(), ce=$('input-creator-email').value.trim();
-        var hasFile = !!state.uploadedFile;
-        var hasSig = $('create-sig-name').value.trim() && $('create-agree').checked;
-        $('btn-create-submit').disabled=!(t && e && e.includes('@') && ce && ce.includes('@') && hasFile && hasSig);
-    }
-
-	function pickFile(file) {
-        if (!file) return;
-        if (file.type!=='application/pdf') { toast('Only PDF files.','error'); return; }
-        if (file.size>10485760) { toast('Max 10 MB.','error'); return; }
-        state.uploadedFile=file;
-        file.arrayBuffer().then(sha256).then(function(h) {
-            state.uploadedHash=h;
-            $('preview-name').textContent=file.name;
-            $('preview-meta').textContent=formatSize(file.size)+' — SHA-256: '+h.slice(0,12)+'...';
-            hide('upload-zone'); show('file-preview');
-            show('create-step-sign');
-            checkCreate();
+        fetch(API + '/archive/' + uuid + '/pdf').then(function(r) {
+            if (!r.ok) throw new Error('PDF fetch failed');
+            return r.arrayBuffer();
+        }).then(function(data) {
+            return pdfjsLib.getDocument({ data: data }).promise;
+        }).then(function(pdf) {
+            return pdf.getPage(1);
+        }).then(function(page) {
+            var thumbWidth = container.clientWidth || 280;
+            var uv = page.getViewport({ scale: 1 });
+            var scale = thumbWidth / uv.width;
+            var vp = page.getViewport({ scale: scale });
+            canvas.width = vp.width;
+            canvas.height = vp.height;
+            return page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+        }).catch(function() {
+            // If PDF can't load, show fallback
+            container.innerHTML = '<div class="archive-thumb-fallback"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg></div>';
         });
     }
 
-	function submitCreate() {
+    // ════════════════════════════════════════════
+    // HASH A FILE (public tool)
+    // ════════════════════════════════════════════
+
+    function initHashTool() {
+        var zone = $('hash-upload-zone');
+        if (!zone) return;
+
+        zone.onclick = function() { $('hash-file-input').click(); };
+        $('hash-file-input').onchange = function(e) { if (e.target.files[0]) hashFile(e.target.files[0]); };
+        zone.ondragover = function(e) { e.preventDefault(); zone.classList.add('drag-over'); };
+        zone.ondragleave = function() { zone.classList.remove('drag-over'); };
+        zone.ondrop = function(e) { e.preventDefault(); zone.classList.remove('drag-over'); if (e.dataTransfer.files[0]) hashFile(e.dataTransfer.files[0]); };
+
+        $('hash-copy').onclick = function() {
+            var val = $('hash-value').textContent;
+            if (val) { navigator.clipboard.writeText(val); toast('Hash copied', 'info'); }
+        };
+
+        $('hash-reset').onclick = function() {
+            hide('hash-result');
+            show('hash-upload-zone');
+            $('hash-file-input').value = '';
+        };
+    }
+
+    function hashFile(file) {
+        if (!file) return;
+        if (file.type !== 'application/pdf') { toast('Only PDF files.', 'error'); return; }
+        if (file.size > 10485760) { toast('Max 10 MB.', 'error'); return; }
+
+        file.arrayBuffer().then(sha256).then(function(h) {
+            $('hash-file-name').textContent = file.name;
+            $('hash-file-meta').textContent = formatSize(file.size);
+            $('hash-value').textContent = h;
+            hide('hash-upload-zone');
+            show('hash-result');
+        });
+    }
+
+    // ════════════════════════════════════════════
+    // DASHBOARD (My Documents)
+    // ════════════════════════════════════════════
+
+    function loadDashboard() {
+        showScreen('screen-dashboard');
+        setActiveNav('nav-my-docs');
+        api('/documents').then(function(d) {
+            var list = $('dash-list');
+            list.innerHTML = '';
+            if (!d.documents.length) {
+                list.innerHTML = '<div class="dash-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg><p>No documents yet</p><p class="small">Create your first notarized document.</p></div>';
+                return;
+            }
+            d.documents.forEach(function(doc) {
+                var el = document.createElement('div');
+                el.className = 'dash-item';
+                el.onclick = function() { history.pushState(null, '', '/document/' + doc.doc_uuid); loadDocument(doc.doc_uuid); };
+                var meta = doc.single_signer ? 'Single signature' : esc(doc.counterparty_email || '');
+                meta += ' · ' + formatDate(doc.created_at);
+                el.innerHTML = '<div class="dash-item-left"><div class="dash-item-title">' + esc(doc.title) + '</div><div class="dash-item-meta">' + meta + '</div></div><div class="dash-item-right"><span class="category-pill category-sm">' + categoryLabel(doc.category) + '</span><span class="status-pill ' + doc.status + '">' + statusLabel(doc.status) + '</span></div>';
+                list.appendChild(el);
+            });
+        }).catch(function(e) { toast(e.message, 'error'); });
+    }
+
+    // ════════════════════════════════════════════
+    // CREATE DOCUMENT (Wizard)
+    // ════════════════════════════════════════════
+
+    var wizardStep = 1;
+
+    function showCreate() {
+        showScreen('screen-create');
+        setActiveNav('nav-new-doc');
+        wizardStep = 1;
+
+        // Reset all state
+        state.uploadedFile = null;
+        state.uploadedHash = null;
+        state.pendingDocUuid = null;
+        state.pendingSig = null;
+        state.pendingInviteUrl = null;
+
+        // Reset form fields
+        $('input-title').value = '';
+        $('input-category').value = 'contract';
+        $('input-note').value = '';
+        $('input-creator-email').value = state.userEmail || '';
+        $('input-email').value = '';
+        $('input-title-public').checked = true;
+        $('input-is-public').checked = false;
+        $('create-sig-name').value = '';
+        $('create-agree').checked = false;
+        $('toggle-counterparty').checked = false;
+
+        // Reset file upload
+        hide('file-preview');
+        show('upload-zone');
+        $('file-input').value = '';
+
+        // Reset UI
+        hide('party-b-section');
+        hide('payment-section');
+        $('btn-create-submit').disabled = true;
+        $('btn-create-submit').textContent = 'Upload, Sign & Pay';
+        $('cost-fee').textContent = state.feeKas + ' KAS';
+
+        // Show wallet address on party card
+        if ($('party-a-wallet')) {
+            $('party-a-wallet').textContent = state.walletAddress ? truncAddr(state.walletAddress) : '';
+        }
+
+        updatePartySummary();
+        showWizardStep(1);
+    }
+
+    function showWizardStep(step) {
+        wizardStep = step;
+        for (var i = 1; i <= 4; i++) {
+            var panel = $('create-panel-' + i);
+            var stepEl = $('wiz-step-' + i);
+            if (panel) { if (i === step) show(panel); else hide(panel); }
+            if (stepEl) {
+                stepEl.classList.remove('active', 'completed');
+                if (i < step) stepEl.classList.add('completed');
+                if (i === step) stepEl.classList.add('active');
+            }
+        }
+    }
+
+    function checkStep1() {
+        var t = $('input-title').value.trim();
+        var hasFile = !!state.uploadedFile;
+        $('btn-wiz-next-1').disabled = !(t && hasFile);
+    }
+
+    function checkStep3() {
+        var hasSig = $('create-sig-name').value.trim() && $('create-agree').checked;
+        $('btn-create-submit').disabled = !hasSig;
+    }
+
+    function updatePartySummary() {
+        var hasCounterparty = $('toggle-counterparty').checked;
+        var text = hasCounterparty
+            ? 'Two-party agreement - counterparty will receive an invite to review and sign.'
+            : 'Single-signature document - will be sealed immediately after you sign.';
+        if ($('party-summary-text')) $('party-summary-text').textContent = text;
+    }
+
+    function checkStep2() {
+        var hasCounterparty = $('toggle-counterparty').checked;
+        var creatorEmail = $('input-creator-email').value.trim();
+        if (hasCounterparty) {
+            var cpEmail = $('input-email').value.trim();
+            return creatorEmail && creatorEmail.includes('@') && cpEmail && cpEmail.includes('@');
+        }
+        return creatorEmail && creatorEmail.includes('@');
+    }
+
+    function pickFile(file) {
+        if (!file) return;
+        if (file.type !== 'application/pdf') { toast('Only PDF files.', 'error'); return; }
+        if (file.size > 10485760) { toast('Max 10 MB.', 'error'); return; }
+        state.uploadedFile = file;
+        file.arrayBuffer().then(sha256).then(function(h) {
+            state.uploadedHash = h;
+            $('preview-name').textContent = file.name;
+            $('preview-meta').textContent = formatSize(file.size) + ' - SHA-256: ' + h.slice(0, 12) + '...';
+            hide('upload-zone');
+            show('file-preview');
+            checkStep1();
+        });
+    }
+
+    function submitCreate() {
         if (!state.uploadedFile) return;
         var sigName = $('create-sig-name').value.trim();
         var agreed = $('create-agree').checked;
-        if (!sigName || !agreed) { toast('Please sign the document first.','error'); return; }
+        if (!sigName || !agreed) { toast('Please sign the document first.', 'error'); return; }
+
+        var hasCounterparty = $('toggle-counterparty').checked;
 
         showLoading('Uploading document...');
-        var fd=new FormData();
-        fd.append('pdf',state.uploadedFile);
-        fd.append('title',$('input-title').value.trim());
-        fd.append('counterparty_email',$('input-email').value.trim());
-        fd.append('creator_email',$('input-creator-email').value.trim());
-        fd.append('note',$('input-note').value.trim());
-        fd.append('is_public', $('input-is-public') && $('input-is-public').checked ? 'true' : 'false');
-        fd.append('title_public', $('input-title-public') && !$('input-title-public').checked ? 'false' : 'true');
+        var fd = new FormData();
+        fd.append('pdf', state.uploadedFile);
+        fd.append('title', $('input-title').value.trim());
+        fd.append('category', $('input-category').value);
+        fd.append('creator_email', $('input-creator-email').value.trim());
+        fd.append('note', $('input-note').value.trim());
+        fd.append('is_public', $('input-is-public').checked ? 'true' : 'false');
+        fd.append('title_public', $('input-title-public').checked ? 'true' : 'false');
 
-        api('/documents',{method:'POST',body:fd}).then(function(d) {
+        if (hasCounterparty) {
+            fd.append('counterparty_email', $('input-email').value.trim());
+        }
+
+        api('/documents', { method: 'POST', body: fd }).then(function(d) {
             state.pendingDocUuid = d.doc_uuid;
-            $('loading-text').textContent = 'Paying notary fee...';
+            state.pendingSig = { name: sigName, agreed: agreed };
 
-            // Immediately show payment
+            // Show payment
             hideLoading();
             hide('btn-create-submit');
-            hide('create-step-details');
-            hide('create-step-sign');
+            hide('wiz-nav-3');
             show('payment-section');
             $('pay-fee-amount').textContent = state.feeKas;
 
-            // Store sig data for after payment
-            state.pendingSig = { name: sigName, agreed: agreed };
-
             toast('Document uploaded. Pay to complete signing.', 'info');
-        }).catch(function(e){hideLoading();toast(e.message,'error');});
+        }).catch(function(e) { hideLoading(); toast(e.message, 'error'); });
     }
 
     function payFee() {
@@ -257,36 +535,27 @@
             return;
         }
 
-        // Register callback BEFORE triggering pay
         window.KasperoPay.onPayment(function(payment) {
             if (state.pendingDocUuid && payment.txid) {
                 verifyAndRecordPayment(state.pendingDocUuid, payment.payment_id, payment.txid, payment.amount_kas || state.feeKas);
             }
         });
 
-        // Trigger payment with onCancel as an option
         window.KasperoPay.pay({
             amount: state.feeKas,
-            item: 'Notary Fee — ' + ($('input-title').value.trim() || 'Document'),
+            item: 'Notary Fee - ' + ($('input-title').value.trim() || 'Document'),
             showReceipt: false,
-            onCancel: function() {
-                toast('Payment cancelled.', 'info');
-            }
+            onCancel: function() { toast('Payment cancelled.', 'info'); }
         });
     }
 
-	function verifyAndRecordPayment(docUuid, paymentId, txid, amountKas) {
+    function verifyAndRecordPayment(docUuid, paymentId, txid, amountKas) {
         showLoading('Verifying payment...');
 
         api('/documents/' + docUuid + '/payment', {
             method: 'POST',
-            body: JSON.stringify({
-                tx_id: txid,
-                payment_id: paymentId,
-                amount_kas: amountKas
-            })
+            body: JSON.stringify({ tx_id: txid, payment_id: paymentId, amount_kas: amountKas })
         }).then(function() {
-            // Payment confirmed — now auto-sign if we have pending signature
             if (state.pendingSig) {
                 $('loading-text').textContent = 'Signing document...';
                 return api('/documents/' + docUuid + '/sign', {
@@ -303,14 +572,31 @@
             hideLoading();
             state.pendingSig = null;
 
-            if (signResult && signResult.invite_url) {
-                // Show the invite options inline on the create page
+            // Move to Step 4: Complete
+            showWizardStep(4);
+
+            if (signResult && signResult.single_signer && signResult.status === 'notarized') {
+                // Single-signer - sealed immediately
+                show('complete-single');
+                hide('complete-two-party');
+                $('btn-view-sealed').onclick = function() {
+                    history.pushState(null, '', '/proof/' + docUuid);
+                    loadProof(docUuid);
+                };
+                toast('Document sealed on the blockchain!', 'success');
+            } else if (signResult && signResult.invite_url) {
+                // Two-party - waiting for counterparty
                 state.pendingInviteUrl = signResult.invite_url;
-                hide('payment-section');
-                show('create-post-sign');
+                hide('complete-single');
+                show('complete-two-party');
                 $('create-invite-status').textContent = '';
+                $('btn-goto-doc').onclick = function() {
+                    history.pushState(null, '', '/document/' + docUuid);
+                    loadDocument(docUuid);
+                };
                 toast('Signed! Send the invite to your counterparty.', 'success');
             } else {
+                // Fallback - go to document
                 state.pendingDocUuid = null;
                 toast('Payment confirmed.', 'success');
                 history.pushState(null, '', '/document/' + docUuid);
@@ -322,199 +608,198 @@
         });
     }
 
-    function recordPayment(uuid,tx,amt) {
-        showLoading('Recording payment...');
-        api('/documents/'+uuid+'/payment',{method:'POST',body:JSON.stringify({tx_id:tx,amount_kas:amt})}).then(function() {
-            hideLoading(); toast('Payment confirmed.','success');
-            history.pushState(null,'','/document/'+uuid); loadDocument(uuid);
-        }).catch(function(e){hideLoading();toast(e.message,'error');});
-    }
+    // ════════════════════════════════════════════
+    // DOCUMENT VIEW
+    // ════════════════════════════════════════════
 
-    // ── Document View ──
     function loadDocument(uuid) {
         showLoading('Loading...');
-        api('/documents/'+uuid).then(function(d) {
-            hideLoading(); state.currentDoc=d.document; renderDoc(d.document);
-        }).catch(function(e){hideLoading();toast(e.message,'error');loadDashboard();});
+        api('/documents/' + uuid).then(function(d) {
+            hideLoading();
+            state.currentDoc = d.document;
+            renderDoc(d.document);
+        }).catch(function(e) { hideLoading(); toast(e.message, 'error'); loadDashboard(); });
     }
 
     function renderDoc(doc) {
         showScreen('screen-document');
-        var me = doc.creator_wallet_address===state.walletAddress;
+        var me = doc.creator_wallet_address === state.walletAddress;
+        var isSingle = !doc.counterparty_email;
 
         $('doc-status-banner').outerHTML = statusBanner(doc.status);
         $('doc-title').textContent = doc.title;
-        $('doc-meta').textContent = 'Created '+formatDate(doc.created_at);
 
         // Party identity badge
         var meA = state.walletAddress === doc.creator_wallet_address;
         var meB = state.walletAddress === doc.counterparty_wallet_address;
-        if (meA || meB) {
-            var partyText = meA ? 'You are Party A (Creator)' : 'You are Party B (Counterparty)';
-            $('doc-meta').textContent = partyText + ' · Created ' + formatDate(doc.created_at);
-        }
-        $('doc-hash').textContent = 'SHA-256: '+(doc.original_hash||'').slice(0,16)+'...';
+        var partyText = meA ? 'You are Party A (Creator)' : meB ? 'You are Party B (Counterparty)' : '';
+        var metaParts = [];
+        if (partyText) metaParts.push(partyText);
+        if (isSingle) metaParts.push('Single signature');
+        metaParts.push('Created ' + formatDate(doc.created_at));
+        $('doc-meta').textContent = metaParts.join(' · ');
+
+        $('doc-hash').textContent = 'SHA-256: ' + (doc.original_hash || '').slice(0, 16) + '...';
         $('doc-hash').title = doc.original_hash;
-        $('doc-hash').onclick = function(){navigator.clipboard.writeText(doc.original_hash);toast('Hash copied','info');};
-        $('doc-file-info').textContent = formatSize(doc.file_size||0)+' · PDF';
-        $('btn-download-original').onclick = function(e){e.preventDefault();window.open(API+'/documents/'+doc.doc_uuid+'/pdf','_blank');};
+        $('doc-hash').onclick = function() { navigator.clipboard.writeText(doc.original_hash); toast('Hash copied', 'info'); };
+        $('doc-file-info').textContent = formatSize(doc.file_size || 0) + ' · PDF';
+        $('btn-download-original').onclick = function(e) { e.preventDefault(); window.open(API + '/documents/' + doc.doc_uuid + '/pdf', '_blank'); };
 
-        renderPdf(API+'/documents/'+doc.doc_uuid+'/pdf','pdf-canvas');
-
-        // No sig field placement — removed
+        renderPdf(API + '/documents/' + doc.doc_uuid + '/pdf', 'pdf-canvas');
 
         // Signatures
-        $('sig-rows').innerHTML =
-            sigRow('Creator (Party A)',doc.creator_wallet_address,doc.creator_signature,doc.creator_signed_at) +
-            sigRow('Counterparty (Party B)',doc.counterparty_wallet_address,doc.counterparty_signature,doc.counterparty_signed_at,doc.counterparty_email);
+        if (isSingle) {
+            $('sig-rows').innerHTML = sigRow('Signer', doc.creator_wallet_address, doc.creator_signature, doc.creator_signed_at);
+        } else {
+            $('sig-rows').innerHTML =
+                sigRow('Creator (Party A)', doc.creator_wallet_address, doc.creator_signature, doc.creator_signed_at) +
+                sigRow('Counterparty (Party B)', doc.counterparty_wallet_address, doc.counterparty_signature, doc.counterparty_signed_at, doc.counterparty_email);
+        }
         show('signatures-section');
 
-        // Actions
+        // Hide all action sections
         hide('sign-action'); hide('invite-action'); hide('finalize-action');
         hide('chain-proof'); hide('notary-seal'); hide('download-section');
-        hide('sig-placement');
+        hide('draft-actions'); hide('draft-edit-form');
 
-		// Draft — show pay button to resume
-        if (me && doc.status==='draft') {
-            show('payment-section-doc');
-        }
-
-        // Draft — show edit/pay/delete actions
-        if (me && doc.status==='draft') {
+        // Draft - show edit/pay/delete
+        if (me && doc.status === 'draft') {
             show('draft-actions');
             if ($('draft-pay-amount')) $('draft-pay-amount').textContent = state.feeKas;
         }
 
-        // Show sign form directly after payment (no fields step)
-        if (me && doc.status==='paid' && !doc.creator_signature) {
-            show('sign-action'); $('btn-sign').disabled=true; $('input-sig-name').value=''; $('input-agree').checked=false;
+        // Paid - show sign form
+        if (me && doc.status === 'paid' && !doc.creator_signature) {
+            show('sign-action');
+            $('btn-sign').disabled = true;
+            $('input-sig-name').value = '';
+            $('input-agree').checked = false;
         }
 
-        // After creator signs, show invite status (auto-sent)
-        if (me && doc.status==='pending_cosign') {
+        // Pending cosign - show invite status (two-party only)
+        if (me && doc.status === 'pending_cosign' && !isSingle) {
             show('invite-action');
-            $('invite-status').textContent = doc.invite_sent_at ? 'Invitation sent to '+doc.counterparty_email+' on '+formatDate(doc.invite_sent_at) : 'Invitation being sent...';
+            $('invite-status').textContent = doc.invite_sent_at ? 'Invitation sent to ' + doc.counterparty_email + ' on ' + formatDate(doc.invite_sent_at) : 'Invitation being sent...';
             $('btn-send-invite').textContent = 'Resend Invitation';
         }
 
-        // pending_finalization = seal failed, show retry
-        if (me && doc.status==='pending_finalization') show('finalize-action');
+        // Pending finalization - seal failed, show retry
+        if (me && doc.status === 'pending_finalization') show('finalize-action');
 
-        if (doc.status==='notarized') { show('chain-proof'); show('notary-seal'); show('download-section'); renderProof(doc); }
-    }
-
-    function sigRow(label,addr,sig,at,email) {
-        var ok=!!sig, c=ok?'signed':'waiting';
-        var ic=ok?'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20,6 9,17 4,12"/></svg>'
-                  :'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>';
-        var a=ok?truncAddr((sig&&sig.wallet_address)||addr):(email?'Awaiting '+email:'Awaiting...');
-        var t=ok&&at?'<div class="sig-time">Signed '+formatDate(at)+'</div>':'';
-        return '<div class="signature-row"><div class="sig-indicator '+c+'">'+ic+'</div><div class="sig-info"><div class="sig-label">'+esc(label)+'</div><div class="sig-address">'+esc(a)+'</div>'+t+'</div></div>';
-    }
-
-    function renderFields() {
-        var l=$('sig-fields-list'); l.innerHTML='';
-        state.signatureFields.forEach(function(f,i) {
-            var d=document.createElement('div'); d.className='sig-field-item';
-            d.innerHTML='<span>Field '+(i+1)+' — Page '+f.page+'</span><select data-i="'+i+'"><option value="A"'+(f.party==='A'?' selected':'')+'>My signature</option><option value="B"'+(f.party==='B'?' selected':'')+'>Counterparty</option></select><button class="sig-field-remove" data-i="'+i+'">×</button>';
-            l.appendChild(d);
-        });
-        l.querySelectorAll('select').forEach(function(s){s.onchange=function(){state.signatureFields[+s.dataset.i].party=s.value;};});
-        l.querySelectorAll('.sig-field-remove').forEach(function(b){b.onclick=function(){state.signatureFields.splice(+b.dataset.i,1);renderFields();};});
-        $('btn-save-fields').disabled=state.signatureFields.length<2;
-    }
-
-    function saveFields() {
-        if (!state.currentDoc||state.signatureFields.length<2) return;
-        if (!state.signatureFields.some(function(f){return f.party==='A';})||!state.signatureFields.some(function(f){return f.party==='B';})) {
-            toast('Need one field per party.','error'); return;
+        // Notarized
+        if (doc.status === 'notarized') {
+            show('chain-proof'); show('notary-seal'); show('download-section');
+            renderProof(doc);
         }
-        showLoading('Saving...');
-        api('/documents/'+state.currentDoc.doc_uuid+'/fields',{method:'PUT',body:JSON.stringify({fields:state.signatureFields})}).then(function() {
-            hideLoading(); toast('Fields saved.','success'); loadDocument(state.currentDoc.doc_uuid);
-        }).catch(function(e){hideLoading();toast(e.message,'error');});
     }
+
+    function sigRow(label, addr, sig, at, email) {
+        var ok = !!sig;
+        var c = ok ? 'signed' : 'waiting';
+        var ic = ok ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20,6 9,17 4,12"/></svg>'
+            : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>';
+        var a = ok ? truncAddr((sig && sig.wallet_address) || addr) : (email ? 'Awaiting ' + email : 'Awaiting...');
+        var t = ok && at ? '<div class="sig-time">Signed ' + formatDate(at) + '</div>' : '';
+        return '<div class="signature-row"><div class="sig-indicator ' + c + '">' + ic + '</div><div class="sig-info"><div class="sig-label">' + esc(label) + '</div><div class="sig-address">' + esc(a) + '</div>' + t + '</div></div>';
+    }
+
+    function renderProof(doc) {
+        var r = $('proof-rows');
+        if (!r) return;
+        r.innerHTML = '';
+        function row(l, v, link, mono) {
+            var cls = mono ? ' mono' : '';
+            var val = link && v ? '<a href="' + EXPLORER + v + '" target="_blank" class="mono">' + v.slice(0, 20) + '...</a>' : (v ? '<span class="' + cls + '">' + esc(v) + '</span>' : '-');
+            return '<div class="proof-row"><span class="proof-label">' + l + '</span><span class="proof-value">' + val + '</span></div>';
+        }
+        r.innerHTML =
+            row('Seal Transaction', doc.seal_tx_id, true) +
+            row('Document Hash', doc.original_hash, false, true) +
+            row('Party A', doc.creator_wallet_address ? truncAddr(doc.creator_wallet_address) : null) +
+            (doc.counterparty_wallet_address ? row('Party B', truncAddr(doc.counterparty_wallet_address)) : '') +
+            row('Sealed', formatDate(doc.notarized_at));
+        if ($('seal-date')) $('seal-date').textContent = formatDateShort(doc.notarized_at);
+    }
+
+    // ════════════════════════════════════════════
+    // DOCUMENT VIEW - Actions
+    // ════════════════════════════════════════════
 
     function checkSignReady() {
         $('btn-sign').disabled = !($('input-sig-name').value.trim() && $('input-agree').checked);
     }
 
     function signDoc() {
-        var n=$('input-sig-name').value.trim();
-        var agreed=$('input-agree').checked;
-        if(!n||!agreed||!state.currentDoc) return;
+        var n = $('input-sig-name').value.trim();
+        var agreed = $('input-agree').checked;
+        if (!n || !agreed || !state.currentDoc) return;
         showLoading('Signing...');
-        api('/documents/'+state.currentDoc.doc_uuid+'/sign',{method:'POST',body:JSON.stringify({signature:{type:'typed',value:n},agreed:true})}).then(function(d) {
-            hideLoading(); toast('Document signed.','success'); loadDocument(state.currentDoc.doc_uuid);
-        }).catch(function(e){hideLoading();toast('Signing failed: '+e.message,'error');});
+        api('/documents/' + state.currentDoc.doc_uuid + '/sign', { method: 'POST', body: JSON.stringify({ signature: { type: 'typed', value: n }, agreed: true }) }).then(function(d) {
+            hideLoading();
+            toast('Document signed.', 'success');
+            loadDocument(state.currentDoc.doc_uuid);
+        }).catch(function(e) { hideLoading(); toast('Signing failed: ' + e.message, 'error'); });
     }
 
     function sendInvite() {
         if (!state.currentDoc) return;
         showLoading('Sending...');
-        api('/documents/'+state.currentDoc.doc_uuid+'/invite',{method:'POST',body:JSON.stringify({})}).then(function(d) {
-            hideLoading(); toast('Invitation sent to '+state.currentDoc.counterparty_email,'success');
-            $('invite-status').textContent='Sent. Link: '+(d.invite_url||'');
-            $('btn-send-invite').textContent='Resend Invitation';
-        }).catch(function(e){hideLoading();toast(e.message,'error');});
+        api('/documents/' + state.currentDoc.doc_uuid + '/invite', { method: 'POST', body: JSON.stringify({}) }).then(function(d) {
+            hideLoading();
+            toast('Invitation sent to ' + state.currentDoc.counterparty_email, 'success');
+            $('invite-status').textContent = 'Sent. Link: ' + (d.invite_url || '');
+            $('btn-send-invite').textContent = 'Resend Invitation';
+        }).catch(function(e) { hideLoading(); toast(e.message, 'error'); });
     }
 
     function finalize() {
         if (!state.currentDoc) return;
         showLoading('Sealing on blockchain...');
-        api('/documents/'+state.currentDoc.doc_uuid+'/finalize',{method:'POST',body:JSON.stringify({})}).then(function() {
-            hideLoading(); toast('Notarized on Kaspa blockchain.','success'); loadDocument(state.currentDoc.doc_uuid);
-        }).catch(function(e){hideLoading();toast(e.message,'error');});
+        api('/documents/' + state.currentDoc.doc_uuid + '/finalize', { method: 'POST', body: JSON.stringify({}) }).then(function() {
+            hideLoading();
+            toast('Notarized on Kaspa blockchain.', 'success');
+            loadDocument(state.currentDoc.doc_uuid);
+        }).catch(function(e) { hideLoading(); toast(e.message, 'error'); });
     }
 
-    function renderProof(doc) {
-        var r=$('proof-rows'); r.innerHTML='';
-        function row(l,v,link,mono) {
-            var cls = mono ? ' mono' : '';
-            var val=link&&v?'<a href="'+EXPLORER+v+'" target="_blank" class="mono">'+v.slice(0,20)+'...</a>':(v?'<span class="'+cls+'">'+esc(v)+'</span>':'—');
-            return '<div class="proof-row"><span class="proof-label">'+l+'</span><span class="proof-value">'+val+'</span></div>';
-        }
-        r.innerHTML=
-            row('Seal Transaction',doc.seal_tx_id,true)+
-            row('Document Hash',doc.original_hash,false,true)+
-            row('Party A',doc.creator_wallet_address?truncAddr(doc.creator_wallet_address):null)+
-            row('Party B',doc.counterparty_wallet_address?truncAddr(doc.counterparty_wallet_address):null)+
-            row('Sealed',formatDate(doc.notarized_at));
-        $('seal-date').textContent=formatDateShort(doc.notarized_at);
-    }
+    // ════════════════════════════════════════════
+    // INVITE FLOW (counterparty)
+    // ════════════════════════════════════════════
 
-    // ── Invite flow (counterparty) ──
     function loadInvite(token) {
-        state.inviteToken=token; showLoading('Loading...');
-        api('/invite/'+token).then(function(d) {
-            hideLoading(); state.inviteDoc=d.document; renderInvite(d.document);
-        }).catch(function(e){hideLoading();toast(e.message,'error');showScreen('screen-landing');});
+        state.inviteToken = token;
+        showLoading('Loading...');
+        api('/invite/' + token).then(function(d) {
+            hideLoading();
+            state.inviteDoc = d.document;
+            renderInvite(d.document);
+        }).catch(function(e) { hideLoading(); toast(e.message, 'error'); loadArchive(); });
     }
 
     function renderInvite(doc) {
         showScreen('screen-invite');
-        $('invite-desc').textContent=truncAddr(doc.creator_address)+' invited you to sign this agreement.';
+
+        $('invite-desc').textContent = truncAddr(doc.creator_wallet_address) + ' invited you to sign this agreement.';
 
         var isNotarized = doc.status === 'notarized';
         var pending = doc.status === 'pending_cosign';
         var statusText = pending ? 'Awaiting your signature' : (isNotarized ? 'Document sealed on the Kaspa blockchain' : 'Both parties have signed');
-        $('invite-status-banner').className='status-banner '+(pending?'pending':'confirmed');
-        $('invite-status-banner').textContent=statusText;
+        $('invite-status-banner').className = 'status-banner ' + (pending ? 'pending' : 'confirmed');
+        $('invite-status-banner').textContent = statusText;
 
-        $('invite-doc-title').textContent=doc.title;
-        $('invite-doc-hash').textContent='SHA-256: '+(doc.original_hash||'').slice(0,16)+'...';
-        $('invite-file-info').textContent=formatSize(doc.file_size||0)+' · PDF';
-        renderPdf(API+'/invite/'+state.inviteToken+'/pdf','invite-pdf-canvas');
+        $('invite-doc-title').textContent = doc.title;
+        $('invite-doc-hash').textContent = 'SHA-256: ' + (doc.original_hash || '').slice(0, 16) + '...';
+        $('invite-file-info').textContent = formatSize(doc.file_size || 0) + ' · PDF';
+        renderPdf(API + '/invite/' + state.inviteToken + '/pdf', 'invite-pdf-canvas');
 
-        // Show both signatures with actual data
         $('invite-sig-rows').innerHTML =
-            sigRow('Creator (Party A)', doc.creator_address, doc.creator_signature, doc.creator_signed_at) +
-            sigRow('Counterparty (Party B)', doc.counterparty_address, doc.counterparty_signature, doc.counterparty_signed_at, doc.counterparty_email);
+            sigRow('Creator (Party A)', doc.creator_wallet_address, doc.creator_signature, doc.creator_signed_at) +
+            sigRow('Counterparty (Party B)', doc.counterparty_wallet_address, doc.counterparty_signature, doc.counterparty_signed_at, doc.counterparty_email);
 
         // Show which party the connected user is
         if (state.walletAddress) {
-            var isCreator = state.walletAddress === doc.creator_address;
-            var isCounter = state.walletAddress === doc.counterparty_address;
+            var isCreator = state.walletAddress === doc.creator_wallet_address;
+            var isCounter = state.walletAddress === doc.counterparty_wallet_address;
             if (isCreator || isCounter) {
                 var partyLabel = isCreator ? 'You are Party A (Creator)' : 'You are Party B (Counterparty)';
                 var existing = document.getElementById('invite-party-badge');
@@ -539,27 +824,33 @@
             txDiv.className = 'chain-proof';
             txDiv.innerHTML = '<div class="chain-proof-header"><h3>Blockchain Proof</h3><div class="verified-badge"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20,6 9,17 4,12"/></svg>Verified</div></div>' +
                 '<div class="proof-rows">' +
-                '<div class="proof-row"><span class="proof-label">Seal Transaction</span><span class="proof-value"><a href="' + EXPLORER + doc.seal_tx_id + '" target="_blank" class="mono">' + doc.seal_tx_id.slice(0,20) + '...</a></span></div>' +
+                '<div class="proof-row"><span class="proof-label">Seal Transaction</span><span class="proof-value"><a href="' + EXPLORER + doc.seal_tx_id + '" target="_blank" class="mono">' + doc.seal_tx_id.slice(0, 20) + '...</a></span></div>' +
                 '<div class="proof-row"><span class="proof-label">Document Hash</span><span class="proof-value mono" style="font-size:11px;word-break:break-all;">' + esc(doc.original_hash) + '</span></div>' +
                 '<div class="proof-row"><span class="proof-label">Sealed</span><span class="proof-value">' + formatDate(doc.notarized_at) + '</span></div>' +
                 '</div>';
             $('invite-sig-rows').parentNode.parentNode.insertBefore(txDiv, $('invite-already-signed'));
         }
 
-		// Show/hide email field based on whether counterparty email is already known
+        // Show/hide email field
         if (doc.counterparty_email) { hide('invite-email-group'); } else { show('invite-email-group'); }
 
-        if (pending) { show('invite-sign-action'); hide('invite-already-signed'); hide('invite-sig-form'); show('btn-invite-connect'); $('invite-sig-name').value=''; $('btn-invite-sign').disabled=true; }
-        else { hide('invite-sign-action'); show('invite-already-signed'); }
+        if (pending) {
+            show('invite-sign-action'); hide('invite-already-signed'); hide('invite-sig-form');
+            show('btn-invite-connect');
+            $('invite-sig-name').value = '';
+            $('btn-invite-sign').disabled = true;
+        } else {
+            hide('invite-sign-action'); show('invite-already-signed');
+        }
     }
 
     function inviteConnect() {
         connectWallet().then(function(ok) {
-            if (ok) { show('invite-sig-form'); hide('btn-invite-connect'); toast('Connected: '+truncAddr(state.walletAddress),'success'); }
+            if (ok) { show('invite-sig-form'); hide('btn-invite-connect'); toast('Connected: ' + truncAddr(state.walletAddress), 'success'); }
         });
     }
 
-	function checkInviteSignReady() {
+    function checkInviteSignReady() {
         var name = $('invite-sig-name').value.trim();
         var agreed = $('invite-agree').checked;
         var emailEl = $('invite-email');
@@ -567,18 +858,21 @@
         var emailOk = emailNeeded ? (emailEl.value.trim() && emailEl.value.trim().includes('@')) : true;
         $('btn-invite-sign').disabled = !(name && agreed && emailOk);
     }
-	
+
     function inviteSign() {
-        var n=$('invite-sig-name').value.trim();
-        var agreed=$('invite-agree').checked;
-        if(!n||!agreed||!state.inviteDoc) return;
+        var n = $('invite-sig-name').value.trim();
+        var agreed = $('invite-agree').checked;
+        if (!n || !agreed || !state.inviteDoc) return;
         var email = $('invite-email').value.trim();
         showLoading('Signing and sealing...');
-        api('/documents/'+state.inviteDoc.doc_uuid+'/sign',{method:'POST',body:JSON.stringify({
-            signature:{type:'typed',value:n},
-            agreed:true,
-            email: email || undefined
-        })}).then(function(d) {
+        api('/documents/' + state.inviteDoc.doc_uuid + '/sign', {
+            method: 'POST',
+            body: JSON.stringify({
+                signature: { type: 'typed', value: n },
+                agreed: true,
+                email: email || undefined
+            })
+        }).then(function(d) {
             hideLoading();
             if (d.status === 'notarized') {
                 toast('Document signed and sealed on blockchain!', 'success');
@@ -586,89 +880,127 @@
                 toast('Document signed.', 'success');
             }
             loadInvite(state.inviteToken);
-        }).catch(function(e){hideLoading();toast(e.message,'error');});
+        }).catch(function(e) { hideLoading(); toast(e.message, 'error'); });
     }
 
-    // ── Public proof ──
+    // ════════════════════════════════════════════
+    // PUBLIC PROOF PAGE
+    // ════════════════════════════════════════════
+
     function loadProof(uuid) {
         showLoading('Loading proof...');
-        api('/proof/'+uuid).then(function(d) {
-            hideLoading(); var p=d.proof;
-            state.currentDoc={
-                doc_uuid:p.doc_uuid,
-                title:'Notarized Document',
-                status:'notarized',
-                original_hash:p.document_hash,
-                creator_wallet_address:p.party_a,
-                counterparty_wallet_address:p.party_b,
-                seal_tx_id:p.seal_tx_id,
-                creator_signed_at:p.party_a_signed,
-                counterparty_signed_at:p.party_b_signed,
-                notarized_at:p.notarized_at,
-                creator_signature:{wallet_address:p.party_a},
-                counterparty_signature:{wallet_address:p.party_b}
-            };
-            renderProofPage(state.currentDoc);
-        }).catch(function(e){hideLoading();toast(e.message,'error');showScreen('screen-landing');});
+        api('/proof/' + uuid).then(function(d) {
+            hideLoading();
+            var p = d.proof;
+            renderProofPage(p, uuid);
+        }).catch(function(e) { hideLoading(); toast(e.message, 'error'); loadArchive(); });
     }
 
-    function renderProofPage(doc) {
-        showScreen('screen-document');
-        var isSigner = state.walletAddress && (state.walletAddress === doc.creator_wallet_address || state.walletAddress === doc.counterparty_wallet_address);
+    function renderProofPage(proof, uuid) {
+        showScreen('screen-proof');
+        var isSigner = state.walletAddress && (state.walletAddress === proof.party_a || state.walletAddress === proof.party_b);
+        var isSingle = !proof.party_b;
 
-        // Status banner
-        $('doc-status-banner').outerHTML = statusBanner('notarized');
-
-        // Title — generic for public, real title for signers
-        $('doc-title').textContent = isSigner ? (doc.title || 'Notarized Document') : 'Notarized Document';
-
-        // Party identity for signers
-        if (isSigner) {
-            var meA = state.walletAddress === doc.creator_wallet_address;
-            $('doc-meta').textContent = (meA ? 'You are Party A (Creator)' : 'You are Party B (Counterparty)') + ' · Sealed ' + formatDate(doc.notarized_at);
+        // Title
+        if (proof.title) {
+            $('proof-title').textContent = proof.title;
+            $('proof-title').className = 'proof-title';
         } else {
-            $('doc-meta').textContent = 'Sealed ' + formatDate(doc.notarized_at);
+            $('proof-title').textContent = 'Private Document';
+            $('proof-title').className = 'proof-title private';
         }
 
-        // Hash — always visible (public data)
-        $('doc-hash').textContent = 'SHA-256: ' + (doc.original_hash || '').slice(0, 16) + '...';
-        $('doc-hash').title = doc.original_hash;
-        $('doc-hash').onclick = function(){ navigator.clipboard.writeText(doc.original_hash); toast('Hash copied', 'info'); };
+        // Category
+        $('proof-category').textContent = categoryLabel(proof.category);
 
-        // PDF viewer — only for signers
-        hide('doc-body');
-        $('doc-file-info').textContent = '';
-        if (isSigner) {
-            show('doc-body');
-            $('doc-file-info').textContent = 'PDF · Visible only to signers';
-            $('btn-download-original').onclick = function(e){ e.preventDefault(); window.open(API + '/documents/' + doc.doc_uuid + '/pdf', '_blank'); };
-            renderPdf(API + '/documents/' + doc.doc_uuid + '/pdf', 'pdf-canvas');
+        // Details
+        $('proof-hash').textContent = proof.document_hash;
+        $('proof-hash').title = proof.document_hash;
+        $('proof-hash').style.cursor = 'pointer';
+        $('proof-hash').onclick = function() { navigator.clipboard.writeText(proof.document_hash); toast('Hash copied', 'info'); };
+
+        $('proof-date').textContent = formatDate(proof.notarized_at);
+        $('proof-party-a').textContent = proof.party_a;
+
+        if (isSingle) {
+            hide('proof-party-b-row');
+            hide('proof-party-b-signed-row');
         } else {
-            $('doc-file-info').textContent = state.walletAddress ? 'Document visible only to the original signers.' : 'Connect your wallet to view the document (signers only).';
+            show('proof-party-b-row');
+            show('proof-party-b-signed-row');
+            $('proof-party-b').textContent = proof.party_b;
+            $('proof-party-b-signed').textContent = formatDate(proof.party_b_signed);
         }
 
-        // Signatures — always show (wallets + dates are public on-chain)
-        $('sig-rows').innerHTML =
-            sigRow('Party A', doc.creator_wallet_address, doc.creator_signature, doc.creator_signed_at) +
-            sigRow('Party B', doc.counterparty_wallet_address, doc.counterparty_signature, doc.counterparty_signed_at);
-        show('signatures-section');
+        $('proof-party-a-signed').textContent = formatDate(proof.party_a_signed);
 
-        // Hide all action buttons... Proof + seal — always visible
-        hide('sign-action'); hide('invite-action'); hide('finalize-action');
-        hide('chain-proof'); hide('notary-seal'); hide('download-section');
-        hide('sig-placement'); hide('draft-actions'); hide('draft-edit-form');
+        // Seal date on the notary stamp
+        if ($('proof-seal-date')) $('proof-seal-date').textContent = formatDateShort(proof.notarized_at);
 
-        // Download — only for signers
-        if (isSigner) { show('download-section'); } else { hide('download-section'); }
+        // Seal TX link
+        if (proof.seal_tx_id) {
+            $('proof-tx').innerHTML = '<a href="' + EXPLORER + proof.seal_tx_id + '" target="_blank" class="mono">' + proof.seal_tx_id + '</a>';
+        } else {
+            $('proof-tx').textContent = '-';
+        }
+
+        // Public PDF viewer
+        if (proof.is_public) {
+            show('proof-document');
+            if ($('btn-proof-view-pdf')) {
+                $('btn-proof-view-pdf').href = API + '/archive/' + uuid + '/pdf';
+            }
+            renderPdf(API + '/archive/' + uuid + '/pdf', 'proof-pdf-canvas');
+        } else {
+            hide('proof-document');
+        }
+
+        // Signer-only note
+        if (isSigner) {
+            show('proof-signer-note');
+            $('proof-access-msg').textContent = 'You are a signer on this document. You can view the full document from your dashboard.';
+        } else if (!proof.is_public) {
+            show('proof-signer-note');
+            $('proof-access-msg').textContent = state.walletAddress
+                ? 'Document visible only to the original signers.'
+                : 'Connect your wallet to view the document (signers only).';
+        } else {
+            hide('proof-signer-note');
+        }
+
+        // Verify tool
+        initVerifyTool(proof.document_hash);
     }
 
-    // ── Routing ──
-	function route() {
-        var p=window.location.pathname;
-        var inv=p.match(/^\/invite\/([a-f0-9]+)$/); if(inv){loadInvite(inv[1]);return;}
-        var prf=p.match(/^\/proof\/([a-f0-9-]+)$/); if(prf){loadProof(prf[1]);return;}
-        var doc=p.match(/^\/document\/([a-f0-9-]+)$/); if(doc&&state.token){loadDocument(doc[1]);return;}
-        if (state.token&&state.walletAddress) loadDashboard(); else loadArchive();
+    function initVerifyTool(expectedHash) {
+        var zone = $('verify-upload-zone');
+        if (!zone) return;
+
+        // Reset
+        hide('verify-result');
+
+        zone.onclick = function() { $('verify-file-input').click(); };
+        $('verify-file-input').onchange = function(e) { if (e.target.files[0]) verifyFile(e.target.files[0], expectedHash); };
+        zone.ondragover = function(e) { e.preventDefault(); zone.classList.add('drag-over'); };
+        zone.ondragleave = function() { zone.classList.remove('drag-over'); };
+        zone.ondrop = function(e) { e.preventDefault(); zone.classList.remove('drag-over'); if (e.dataTransfer.files[0]) verifyFile(e.dataTransfer.files[0], expectedHash); };
+    }
+
+    function verifyFile(file, expectedHash) {
+        file.arrayBuffer().then(sha256).then(function(h) {
+            var match = h === expectedHash;
+            var result = $('verify-result');
+            show(result);
+            if (match) {
+                result.className = 'verify-result verify-match';
+                result.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20,6 9,17 4,12"/></svg>' +
+                    '<div><strong>Match confirmed.</strong> This file is identical to the sealed document.</div>';
+            } else {
+                result.className = 'verify-result verify-mismatch';
+                result.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>' +
+                    '<div><strong>No match.</strong> This file does not match the sealed document. Hash: <span class="mono" style="font-size:11px;word-break:break-all;">' + h + '</span></div>';
+            }
+        });
     }
 
     // ── PDF Fullscreen ──
@@ -699,89 +1031,110 @@
         });
     }
 
-	// ── Public Archive ──
-    function loadArchive() {
-        showScreen('screen-archive'); setActiveNav('nav-archive');
-        api('/archive').then(function(d) {
-            var list = $('archive-list'); list.innerHTML = '';
-            if (!d.documents || !d.documents.length) {
-                list.innerHTML='<div class="dash-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg><p>No notarized documents yet</p></div>';
-                return;
-            }
-            d.documents.forEach(function(doc) {
-                var el = document.createElement('div');
-                el.className = 'archive-card' + (doc.is_public ? ' public' : '');
-                var title = doc.title ? esc(doc.title) : '<span class="private-label">Private Document</span>';
-                var hashShort = (doc.original_hash || '').slice(0, 16) + '...';
-                var html = '<div class="archive-card-top">';
-                html += '<div class="archive-card-title">' + title + '</div>';
-                html += '<span class="status-pill notarized">Notarized</span>';
-                html += '</div>';
-                html += '<div class="archive-card-meta">';
-                html += '<span class="mono" style="font-size:11px;">' + esc(hashShort) + '</span>';
-                html += '<span>' + formatDate(doc.notarized_at) + '</span>';
-                html += '</div>';
-                html += '<div class="archive-card-parties">';
-                html += '<span>Party A: ' + truncAddr(doc.party_a) + '</span>';
-                html += '<span>Party B: ' + truncAddr(doc.party_b) + '</span>';
-                html += '</div>';
-                if (doc.seal_tx_id) {
-                    html += '<div class="archive-card-tx"><a href="' + EXPLORER + doc.seal_tx_id + '" target="_blank" class="mono">Seal TX: ' + doc.seal_tx_id.slice(0,16) + '...</a></div>';
-                }
-                if (doc.is_public) {
-                    html += '<div class="archive-card-actions"><a href="' + API + '/archive/' + doc.doc_uuid + '/pdf" target="_blank" class="btn btn-secondary btn-sm">View PDF</a></div>';
-                }
-                html += '</div>';
-                el.innerHTML = html;
-                el.style.cursor = 'pointer';
-                el.onclick = function() { history.pushState(null,'','/proof/' + doc.doc_uuid); loadProof(doc.doc_uuid); };
-                list.appendChild(el);
-            });
-        }).catch(function(e) { console.error('Archive load error:', e); });
+    // ════════════════════════════════════════════
+    // ROUTING
+    // ════════════════════════════════════════════
+
+    function route() {
+        var p = window.location.pathname;
+        var inv = p.match(/^\/invite\/([a-f0-9]+)$/);
+        if (inv) { loadInvite(inv[1]); return; }
+        var prf = p.match(/^\/proof\/([a-f0-9-]+)$/);
+        if (prf) { loadProof(prf[1]); return; }
+        var doc = p.match(/^\/document\/([a-f0-9-]+)$/);
+        if (doc && state.token) { loadDocument(doc[1]); return; }
+        if (state.token && state.walletAddress) loadDashboard(); else loadArchive();
     }
 
-    // ── Init ──
+    // ════════════════════════════════════════════
+    // INIT
+    // ════════════════════════════════════════════
+
     function init() {
         updateHeader();
-        api('/config').then(function(d){state.feeKas=d.fee_kas||5;state.merchantId=d.merchant_id;}).catch(function(){});
+        api('/config').then(function(d) { state.feeKas = d.fee_kas || 5; state.merchantId = d.merchant_id; }).catch(function() {});
 
-		$('btn-home').onclick=function(){history.pushState(null,'','/');if(state.token)loadDashboard();else loadArchive();};
-		if ($('nav-archive')) $('nav-archive').onclick=function(){history.pushState(null,'','/');loadArchive();};
-        if ($('nav-my-docs')) $('nav-my-docs').onclick=function(){history.pushState(null,'','/');loadDashboard();};
-        if ($('nav-new-doc')) $('nav-new-doc').onclick=function(){showCreate();};
-        if ($('nav-how')) $('nav-how').onclick=function(){showScreen('screen-how');setActiveNav('nav-how');};
-        $('btn-connect').onclick=function(){connectWallet().then(function(ok){if(ok)loadDashboard();});};
-        $('btn-disconnect').onclick=disconnect;
-        $('btn-new-doc').onclick=showCreate;
-        $('btn-back-dash').onclick=function(){history.pushState(null,'','/');loadDashboard();};
-        $('btn-back-dash2').onclick=function(){history.pushState(null,'','/');loadDashboard();};
-        $('input-title').oninput=checkCreate;
-        $('input-email').oninput=checkCreate;
-        $('input-creator-email').oninput=checkCreate;
-        $('create-sig-name').oninput=checkCreate;
-        $('create-agree').onchange=checkCreate;
+        // ── Nav ──
+        $('btn-home').onclick = function() { history.pushState(null, '', '/'); if (state.token) loadDashboard(); else loadArchive(); };
+        $('nav-archive').onclick = function() { history.pushState(null, '', '/'); loadArchive(); };
+        $('nav-my-docs').onclick = function() { history.pushState(null, '', '/'); loadDashboard(); };
+        $('nav-new-doc').onclick = function() { showCreate(); };
+        $('nav-how').onclick = function() { showScreen('screen-how'); setActiveNav('nav-how'); };
+        $('nav-hash').onclick = function() { showScreen('screen-hash'); setActiveNav('nav-hash'); };
 
-        var uz=$('upload-zone');
-        uz.onclick=function(){$('file-input').click();};
-        $('file-input').onchange=function(e){if(e.target.files[0])pickFile(e.target.files[0]);};
-        uz.ondragover=function(e){e.preventDefault();uz.classList.add('drag-over');};
-        uz.ondragleave=function(){uz.classList.remove('drag-over');};
-        uz.ondrop=function(e){e.preventDefault();uz.classList.remove('drag-over');if(e.dataTransfer.files[0])pickFile(e.dataTransfer.files[0]);};
-        $('btn-file-remove').onclick=function(){state.uploadedFile=null;$('file-input').value='';show('upload-zone');hide('file-preview');hide('create-step-sign');checkCreate();};
-        $('btn-create-submit').onclick=submitCreate;
-        $('input-sig-name').oninput=checkSignReady;
-        $('input-agree').onchange=checkSignReady;
-        $('btn-sign').onclick=signDoc;
-        $('btn-send-invite').onclick=sendInvite;
-        $('btn-finalize').onclick=finalize;
-        $('btn-download-signed').onclick=function(){if(state.currentDoc)window.open(API+'/documents/'+state.currentDoc.doc_uuid+'/download','_blank');};
-        $('btn-invite-connect').onclick=inviteConnect;
-        $('invite-sig-name').oninput=checkInviteSignReady;
-        $('invite-agree').onchange=checkInviteSignReady;
-        if ($('invite-email')) $('invite-email').oninput=checkInviteSignReady;
-        $('btn-invite-sign').onclick=inviteSign;
+        // ── Header ──
+        $('btn-connect').onclick = function() { connectWallet().then(function(ok) { if (ok) loadDashboard(); }); };
+        $('btn-disconnect').onclick = disconnect;
 
-        // Create-page invite buttons
+        // ── Dashboard ──
+        $('btn-new-doc').onclick = showCreate;
+
+        // ── Archive search/filter ──
+        var archiveDebounce = null;
+        if ($('archive-search-input')) {
+            $('archive-search-input').oninput = function() {
+                clearTimeout(archiveDebounce);
+                archiveDebounce = setTimeout(function() { state.archivePage = 1; fetchArchive(); }, 300);
+            };
+        }
+        if ($('archive-filter-category')) $('archive-filter-category').onchange = function() { state.archivePage = 1; fetchArchive(); };
+        if ($('archive-filter-period')) $('archive-filter-period').onchange = function() { state.archivePage = 1; fetchArchive(); };
+        if ($('archive-prev')) $('archive-prev').onclick = function() { if (state.archivePage > 1) { state.archivePage--; fetchArchive(); } };
+        if ($('archive-next')) $('archive-next').onclick = function() { state.archivePage++; fetchArchive(); };
+
+        // ── Hash tool ──
+        initHashTool();
+
+        // ── Create wizard: Step 1 ──
+        $('input-title').oninput = checkStep1;
+
+        var uz = $('upload-zone');
+        uz.onclick = function() { $('file-input').click(); };
+        $('file-input').onchange = function(e) { if (e.target.files[0]) pickFile(e.target.files[0]); };
+        uz.ondragover = function(e) { e.preventDefault(); uz.classList.add('drag-over'); };
+        uz.ondragleave = function() { uz.classList.remove('drag-over'); };
+        uz.ondrop = function(e) { e.preventDefault(); uz.classList.remove('drag-over'); if (e.dataTransfer.files[0]) pickFile(e.dataTransfer.files[0]); };
+        $('btn-file-remove').onclick = function() { state.uploadedFile = null; state.uploadedHash = null; $('file-input').value = ''; show('upload-zone'); hide('file-preview'); checkStep1(); };
+
+        $('btn-wiz-next-1').onclick = function() {
+            if (!$('input-title').value.trim() || !state.uploadedFile) return;
+            showWizardStep(2);
+        };
+
+        // ── Create wizard: Step 2 ──
+        $('toggle-counterparty').onchange = function() {
+            if (this.checked) { show('party-b-section'); } else { hide('party-b-section'); $('input-email').value = ''; }
+            updatePartySummary();
+        };
+
+        $('btn-wiz-back-2').onclick = function() { showWizardStep(1); };
+        $('btn-wiz-next-2').onclick = function() {
+            if (!checkStep2()) {
+                toast('Please fill in all required email fields.', 'error');
+                return;
+            }
+
+            // Build sign summary
+            var summary = '<div class="sign-summary-item"><strong>' + esc($('input-title').value.trim()) + '</strong></div>';
+            summary += '<div class="sign-summary-item">' + categoryLabel($('input-category').value) + ' · ' + esc(state.uploadedFile.name) + ' · ' + formatSize(state.uploadedFile.size) + '</div>';
+            if ($('toggle-counterparty').checked) {
+                summary += '<div class="sign-summary-item">Counterparty: ' + esc($('input-email').value.trim()) + '</div>';
+            } else {
+                summary += '<div class="sign-summary-item">Single-signature document</div>';
+            }
+            $('sign-summary').innerHTML = summary;
+
+            showWizardStep(3);
+        };
+
+        // ── Create wizard: Step 3 ──
+        $('create-sig-name').oninput = checkStep3;
+        $('create-agree').onchange = checkStep3;
+        $('btn-create-submit').onclick = submitCreate;
+        $('btn-pay-fee').onclick = payFee;
+        $('btn-wiz-back-3').onclick = function() { showWizardStep(2); };
+
+        // ── Create wizard: Step 4 ──
         if ($('btn-send-invite-create')) $('btn-send-invite-create').onclick = function() {
             if (!state.pendingDocUuid) return;
             showLoading('Sending invite...');
@@ -792,6 +1145,7 @@
                 if (d.invite_url) state.pendingInviteUrl = d.invite_url;
             }).catch(function(e) { hideLoading(); toast(e.message, 'error'); });
         };
+
         if ($('btn-copy-link-create')) $('btn-copy-link-create').onclick = function() {
             if (state.pendingInviteUrl) {
                 navigator.clipboard.writeText(state.pendingInviteUrl);
@@ -800,16 +1154,21 @@
             }
         };
 
-        // PDF fullscreen buttons
-        if ($('btn-pdf-fullscreen')) $('btn-pdf-fullscreen').onclick=function(){openPdfFullscreen('pdf-viewer', state.currentDoc ? state.currentDoc.title : 'Document');};
-        if ($('btn-invite-pdf-fullscreen')) $('btn-invite-pdf-fullscreen').onclick=function(){openPdfFullscreen('invite-pdf-viewer', state.inviteDoc ? state.inviteDoc.title : 'Document');};
+        // ── Document view ──
+        $('btn-back-dash').onclick = function() { history.pushState(null, '', '/'); loadDashboard(); };
+        $('btn-back-dash2').onclick = function() { history.pushState(null, '', '/'); loadDashboard(); };
+        $('input-sig-name').oninput = checkSignReady;
+        $('input-agree').onchange = checkSignReady;
+        $('btn-sign').onclick = signDoc;
+        $('btn-send-invite').onclick = sendInvite;
+        $('btn-finalize').onclick = finalize;
+        $('btn-download-signed').onclick = function() { if (state.currentDoc) window.open(API + '/documents/' + state.currentDoc.doc_uuid + '/download', '_blank'); };
 
-        window.onpopstate=route;
+        // PDF fullscreen
+        if ($('btn-pdf-fullscreen')) $('btn-pdf-fullscreen').onclick = function() { openPdfFullscreen('pdf-viewer', state.currentDoc ? state.currentDoc.title : 'Document'); };
+        if ($('btn-invite-pdf-fullscreen')) $('btn-invite-pdf-fullscreen').onclick = function() { openPdfFullscreen('invite-pdf-viewer', state.inviteDoc ? state.inviteDoc.title : 'Document'); };
 
-        // Pay fee button
-		$('btn-pay-fee').onclick = payFee;
-
-        // Draft actions
+        // ── Draft actions ──
         if ($('btn-draft-pay')) $('btn-draft-pay').onclick = function() {
             if (!state.currentDoc || !window.KasperoPay) { toast('Payment widget not ready.', 'error'); return; }
             state.pendingDocUuid = state.currentDoc.doc_uuid;
@@ -820,7 +1179,7 @@
             });
             window.KasperoPay.pay({
                 amount: state.feeKas,
-                item: 'Notary Fee — ' + (state.currentDoc.title || 'Document'),
+                item: 'Notary Fee - ' + (state.currentDoc.title || 'Document'),
                 showReceipt: false,
                 onCancel: function() { toast('Payment cancelled.', 'info'); }
             });
@@ -858,11 +1217,11 @@
                 headers: { 'Authorization': 'Bearer ' + state.token },
                 body: fd
             }).then(function(r) { return r.json().then(function(d) { if (!r.ok) throw new Error(d.error); return d; }); })
-            .then(function() {
-                hideLoading();
-                toast('Draft updated.', 'success');
-                loadDocument(state.currentDoc.doc_uuid);
-            }).catch(function(e) { hideLoading(); toast(e.message, 'error'); });
+                .then(function() {
+                    hideLoading();
+                    toast('Draft updated.', 'success');
+                    loadDocument(state.currentDoc.doc_uuid);
+                }).catch(function(e) { hideLoading(); toast(e.message, 'error'); });
         };
 
         if ($('btn-draft-delete')) $('btn-draft-delete').onclick = function() {
@@ -877,9 +1236,17 @@
             }).catch(function(e) { hideLoading(); toast(e.message, 'error'); });
         };
 
+        // ── Invite view ──
+        $('btn-invite-connect').onclick = inviteConnect;
+        $('invite-sig-name').oninput = checkInviteSignReady;
+        $('invite-agree').onchange = checkInviteSignReady;
+        if ($('invite-email')) $('invite-email').oninput = checkInviteSignReady;
+        $('btn-invite-sign').onclick = inviteSign;
+
+        // ── Routing ──
+        window.onpopstate = route;
         route();
     }
 
-    if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',init); else init();
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
-

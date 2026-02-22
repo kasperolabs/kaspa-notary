@@ -52,7 +52,7 @@ router.post('/auth/connect', async (req, res) => {
             [walletAddress]
         );
 
-		const token = generateToken(walletAddress);
+        const token = generateToken(walletAddress);
         await audit.log(null, walletAddress, 'auth_connect', null, req.ip);
 
         // Fetch stored email for pre-fill
@@ -85,30 +85,88 @@ router.get('/config', (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// PUBLIC ARCHIVE
+// PUBLIC ARCHIVE (with search + filter)
 // ─────────────────────────────────────────────
 
 /**
  * GET /api/archive
- * Public endpoint — returns all notarized documents for the public archive.
- * Public docs return title + hash + PDF access. Private docs return hash + wallets only.
+ * Public endpoint — returns notarized documents for the public archive.
+ * Supports search, category filter, date filter, and pagination.
+ *
+ * Query params:
+ *   q         — search term (matches public title, hash, wallet addresses)
+ *   category  — filter by category enum value
+ *   period    — 'week', 'month', '3months', 'year', 'all' (default: 'all')
+ *   page      — page number (default: 1)
+ *   limit     — results per page (default: 20, max: 50)
  */
 router.get('/archive', async (req, res) => {
     try {
+        const { q, category, period, page, limit } = req.query;
+
+        const pageNum = Math.max(1, parseInt(page) || 1);
+        const pageSize = Math.min(50, Math.max(1, parseInt(limit) || 20));
+        const offset = (pageNum - 1) * pageSize;
+
+        let where = [`status = 'notarized'`];
+        let params = [];
+
+        // Search filter
+        if (q && q.trim()) {
+            const search = q.trim();
+            where.push(`(
+                (title_public = 1 AND title LIKE ?) OR
+                original_hash LIKE ? OR
+                creator_wallet_address LIKE ? OR
+                counterparty_wallet_address LIKE ? OR
+                seal_tx_id LIKE ?
+            )`);
+            const like = `%${search}%`;
+            params.push(like, like, like, like, like);
+        }
+
+        // Category filter
+        if (category && category !== 'all') {
+            where.push('category = ?');
+            params.push(category);
+        }
+
+        // Date filter
+        if (period && period !== 'all') {
+            const intervals = { week: 7, month: 30, '3months': 90, year: 365 };
+            const days = intervals[period];
+            if (days) {
+                where.push('notarized_at >= DATE_SUB(NOW(), INTERVAL ? DAY)');
+                params.push(days);
+            }
+        }
+
+        const whereClause = where.join(' AND ');
+
+        // Get total count
+        const [countRows] = await db.execute(
+            `SELECT COUNT(*) as total FROM notary_documents WHERE ${whereClause}`,
+            params
+        );
+        const total = countRows[0].total;
+
+        // Get documents (LIMIT/OFFSET interpolated directly — values are already parseInt-validated above)
         const [rows] = await db.execute(
-            `SELECT doc_uuid, title, title_public, is_public, original_hash, file_size,
+            `SELECT doc_uuid, title, title_public, is_public, category, original_hash, file_size,
                     creator_wallet_address, counterparty_wallet_address,
                     seal_tx_id, notarized_at
              FROM notary_documents 
-             WHERE status = 'notarized'
+             WHERE ${whereClause}
              ORDER BY notarized_at DESC
-             LIMIT 50`
+             LIMIT ${pageSize} OFFSET ${offset}`,
+            params
         );
 
         const documents = rows.map(doc => ({
             doc_uuid: doc.doc_uuid,
             title: doc.title_public ? doc.title : null,
             is_public: !!doc.is_public,
+            category: doc.category || 'contract',
             original_hash: doc.original_hash,
             file_size: doc.file_size,
             party_a: doc.creator_wallet_address,
@@ -117,7 +175,16 @@ router.get('/archive', async (req, res) => {
             notarized_at: doc.notarized_at
         }));
 
-        res.json({ success: true, documents });
+        res.json({
+            success: true,
+            documents,
+            pagination: {
+                page: pageNum,
+                limit: pageSize,
+                total,
+                pages: Math.ceil(total / pageSize)
+            }
+        });
     } catch (err) {
         console.error('Archive error:', err);
         res.status(500).json({ error: 'Failed to load archive' });
@@ -157,7 +224,8 @@ router.get('/archive/:docUuid/pdf', async (req, res) => {
 
 /**
  * POST /api/documents
- * Upload PDF, set title, counterparty email. Creates draft.
+ * Upload PDF, set title, optional counterparty email. Creates draft.
+ * If no counterparty_email, this is a single-signer document.
  */
 router.post('/documents', requireAuth, upload.single('pdf'), async (req, res) => {
     try {
@@ -165,14 +233,18 @@ router.post('/documents', requireAuth, upload.single('pdf'), async (req, res) =>
             return res.status(400).json({ error: 'PDF file required' });
         }
 
-		const { title, counterparty_email, creator_email, note, is_public, title_public } = req.body;
-        if (!title || !counterparty_email) {
-            return res.status(400).json({ error: 'Title and counterparty email required' });
+        const { title, counterparty_email, creator_email, note, category, is_public, title_public } = req.body;
+        if (!title) {
+            return res.status(400).json({ error: 'Title required' });
         }
 
-        if (!counterparty_email.includes('@')) {
-            return res.status(400).json({ error: 'Valid email required' });
+        // Counterparty email is optional — if absent, single-signer mode
+        if (counterparty_email && !counterparty_email.includes('@')) {
+            return res.status(400).json({ error: 'Valid email required for counterparty' });
         }
+
+        const validCategories = ['contract', 'agreement', 'patent', 'nda', 'certificate', 'other'];
+        const docCategory = validCategories.includes(category) ? category : 'contract';
 
         const docUuid = uuidv4();
         const { filePath, hash, fileSize } = await notaryService.storeDocument(
@@ -184,9 +256,9 @@ router.post('/documents', requireAuth, upload.single('pdf'), async (req, res) =>
 
         await db.execute(
             `INSERT INTO notary_documents 
-             (doc_uuid, creator_wallet_address, creator_email, counterparty_email, title, note, original_file_path, original_hash, file_size, is_public, title_public, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
-            [docUuid, req.walletAddress, (creator_email || '').trim() || null, counterparty_email.trim(), title.trim(), note || null, filePath, hash, fileSize, docIsPublic, docTitlePublic]
+             (doc_uuid, creator_wallet_address, creator_email, counterparty_email, title, note, category, original_file_path, original_hash, file_size, is_public, title_public, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
+            [docUuid, req.walletAddress, (creator_email || '').trim() || null, counterparty_email ? counterparty_email.trim() : null, title.trim(), note || null, docCategory, filePath, hash, fileSize, docIsPublic, docTitlePublic]
         );
 
         // Also update the user's email in the users table
@@ -197,14 +269,15 @@ router.post('/documents', requireAuth, upload.single('pdf'), async (req, res) =>
             ).catch(() => {});
         }
 
-        await audit.log(docUuid, req.walletAddress, 'document_created', { title, counterparty_email }, req.ip);
+        await audit.log(docUuid, req.walletAddress, 'document_created', { title, counterparty_email: counterparty_email || null, category: docCategory }, req.ip);
 
         res.json({
             success: true,
             doc_uuid: docUuid,
             hash: hash,
             file_size: fileSize,
-            fee_kas: NOTARY_FEE_KAS
+            fee_kas: NOTARY_FEE_KAS,
+            single_signer: !counterparty_email
         });
     } catch (err) {
         console.error('Create document error:', err);
@@ -218,7 +291,7 @@ router.post('/documents', requireAuth, upload.single('pdf'), async (req, res) =>
 
 /**
  * PUT /api/documents/:docUuid
- * Edit a draft document — title, counterparty email, note, visibility, or replace PDF.
+ * Edit a draft document — title, counterparty email, note, category, visibility, or replace PDF.
  */
 router.put('/documents/:docUuid', requireAuth, upload.single('pdf'), async (req, res) => {
     try {
@@ -246,13 +319,21 @@ router.put('/documents/:docUuid', requireAuth, upload.single('pdf'), async (req,
             updates.push('title = ?');
             params.push(req.body.title.trim());
         }
-        if (req.body.counterparty_email && req.body.counterparty_email.includes('@')) {
+        if (req.body.counterparty_email !== undefined) {
             updates.push('counterparty_email = ?');
-            params.push(req.body.counterparty_email.trim());
+            // Allow clearing counterparty (switching to single-signer)
+            params.push(req.body.counterparty_email && req.body.counterparty_email.includes('@') ? req.body.counterparty_email.trim() : null);
         }
         if (req.body.note !== undefined) {
             updates.push('note = ?');
             params.push(req.body.note || null);
+        }
+        if (req.body.category !== undefined) {
+            const validCategories = ['contract', 'agreement', 'patent', 'nda', 'certificate', 'other'];
+            if (validCategories.includes(req.body.category)) {
+                updates.push('category = ?');
+                params.push(req.body.category);
+            }
         }
         if (req.body.is_public !== undefined) {
             updates.push('is_public = ?');
@@ -450,7 +531,9 @@ router.post('/documents/:docUuid/payment', requireAuth, async (req, res) => {
  * POST /api/documents/:docUuid/sign
  * Party A or Party B signs the document.
  * Records consent + typed name in DB.
- * When Party B signs, auto-seals on blockchain (no separate finalize step).
+ *
+ * Two-party: When Party B signs, auto-seals on blockchain.
+ * Single-signer: When Party A signs, auto-seals immediately (no counterparty needed).
  */
 router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
     try {
@@ -473,6 +556,7 @@ router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
         const doc = rows[0];
 
         const isCreator = doc.creator_wallet_address === req.walletAddress;
+        const isSingleSigner = !doc.counterparty_email;
 
         // Determine which party is signing
         let party;
@@ -501,6 +585,65 @@ router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
         };
 
         if (party === 'A') {
+            // ── SINGLE-SIGNER: sign + auto-seal ──
+            if (isSingleSigner) {
+                await db.execute(
+                    `UPDATE notary_documents 
+                     SET creator_signature = ?, creator_signed_at = NOW(), status = 'pending_finalization'
+                     WHERE doc_uuid = ?`,
+                    [JSON.stringify(sigData), docUuid]
+                );
+
+                await audit.log(docUuid, req.walletAddress, 'creator_signed', { single_signer: true }, req.ip);
+
+                // Auto-seal: no counterparty needed
+                let sealResult = null;
+                try {
+                    sealResult = await keystoneService.sendSealTx(
+                        doc.creator_wallet_address,
+                        null, // No Party B
+                        doc.original_hash
+                    );
+
+                    await db.execute(
+                        `UPDATE notary_documents 
+                         SET seal_tx_id = ?, seal_payload = ?, status = 'notarized', notarized_at = NOW()
+                         WHERE doc_uuid = ?`,
+                        [sealResult.txId, sealResult.payload, docUuid]
+                    );
+
+                    await audit.log(docUuid, req.walletAddress, 'document_notarized', { seal_tx_id: sealResult.txId, single_signer: true }, req.ip);
+
+                    // Send confirmation email to creator
+                    if (doc.creator_email) {
+                        const proofUrl = `${APP_URL}/proof/${docUuid}`;
+                        emailService.sendNotarizedEmail(doc.creator_email, {
+                            title: doc.title,
+                            proofUrl,
+                            sealTxId: sealResult.txId,
+                            documentHash: doc.original_hash,
+                            partyAWallet: doc.creator_wallet_address,
+                            partyBWallet: null,
+                            notarizedAt: new Date().toISOString(),
+                            explorerUrl: 'https://explorer.kaspa.org/txs/'
+                        }).catch(() => {});
+                    }
+
+                    return res.json({ success: true, party: 'A', status: 'notarized', seal_tx_id: sealResult.txId, single_signer: true });
+
+                } catch (sealErr) {
+                    console.error('Single-signer auto-seal error:', sealErr.message);
+                    return res.json({
+                        success: true,
+                        party: 'A',
+                        status: 'pending_finalization',
+                        single_signer: true,
+                        seal_error: 'Blockchain seal pending — will retry automatically'
+                    });
+                }
+            }
+
+            // ── TWO-PARTY: creator signs, wait for counterparty ──
             await db.execute(
                 `UPDATE notary_documents 
                  SET creator_signature = ?, creator_signed_at = NOW(), status = 'pending_cosign'
@@ -508,7 +651,7 @@ router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
                 [JSON.stringify(sigData), docUuid]
             );
 
-			// Generate invite token
+            // Generate invite token
             const inviteToken = notaryService.generateInviteToken();
             const inviteUrl = `${APP_URL}/invite/${inviteToken}`;
             await db.execute(
@@ -537,9 +680,9 @@ router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
             res.json({ success: true, party: 'A', status: 'pending_cosign', invite_url: inviteUrl });
 
         } else {
-            // Party B signs — save email if provided
+            // ── Party B signs — auto-seal ──
             const updateFields = [JSON.stringify(sigData), req.walletAddress];
-			let emailUpdate = '';
+            let emailUpdate = '';
             if (email && email.includes('@') && !doc.counterparty_email) {
                 emailUpdate = ', counterparty_email = ?';
                 updateFields.push(email.trim());
@@ -589,11 +732,9 @@ router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
                     notarizedAt: new Date().toISOString(),
                     explorerUrl
                 };
-                // Party A (creator)
                 if (doc.creator_email) {
                     emailService.sendNotarizedEmail(doc.creator_email, emailData).catch(() => {});
                 }
-                // Party B (counterparty)
                 const partyBEmail = (email && email.includes('@')) ? email.trim() : doc.counterparty_email;
                 if (partyBEmail) {
                     emailService.sendNotarizedEmail(partyBEmail, emailData).catch(() => {});
@@ -603,8 +744,6 @@ router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
 
             } catch (sealErr) {
                 console.error('Auto-seal error:', sealErr.message);
-                // Signature is saved, but seal failed — stays at pending_finalization
-                // Creator can manually retry via finalize endpoint
                 res.json({
                     success: true,
                     party: 'B',
@@ -643,6 +782,10 @@ router.post('/documents/:docUuid/invite', requireAuth, async (req, res) => {
             return res.status(403).json({ error: 'Only the creator can send invitations' });
         }
 
+        if (!doc.counterparty_email) {
+            return res.status(400).json({ error: 'No counterparty on this document — single-signer mode' });
+        }
+
         if (doc.status !== 'pending_cosign') {
             return res.status(400).json({ error: 'Creator must sign before inviting counterparty' });
         }
@@ -666,7 +809,6 @@ router.post('/documents/:docUuid/invite', requireAuth, async (req, res) => {
             });
         } catch (emailErr) {
             console.error('Email send error:', emailErr.message);
-            // Still return success — the invite token is created, email can be resent
         }
 
         await audit.log(docUuid, req.walletAddress, 'invite_sent', { to: doc.counterparty_email }, req.ip);
@@ -692,11 +834,13 @@ router.get('/invite/:token', async (req, res) => {
         const { token } = req.params;
 
         const [rows] = await db.execute(
-            `SELECT doc_uuid, title, note, original_hash, file_size, status,
+            `SELECT doc_uuid, title, note, original_hash, file_size, status, category,
+                    is_public, title_public,
                     creator_wallet_address, counterparty_wallet_address, counterparty_email,
                     creator_signature, counterparty_signature,
-                    seal_tx_id,
-                    created_at, creator_signed_at, counterparty_signed_at, notarized_at
+                    seal_tx_id, seal_payload,
+                    payment_tx_id, payment_amount_kas,
+                    created_at, creator_signed_at, counterparty_signed_at, notarized_at, invite_sent_at
              FROM notary_documents WHERE invite_token = ?`,
             [token]
         );
@@ -710,13 +854,14 @@ router.get('/invite/:token', async (req, res) => {
 
         await audit.log(doc.doc_uuid, null, 'invite_viewed', null, req.ip);
 
-		res.json({
+        res.json({
             success: true,
             document: {
                 doc_uuid: doc.doc_uuid,
                 title: doc.title,
                 note: doc.note,
                 status: doc.status,
+                category: doc.category,
                 original_hash: doc.original_hash,
                 file_size: doc.file_size,
                 is_public: !!doc.is_public,
@@ -802,8 +947,11 @@ router.get('/documents/:docUuid', requireAuth, async (req, res) => {
                 title: doc.title,
                 note: doc.note,
                 status: doc.status,
+                category: doc.category,
                 original_hash: doc.original_hash,
                 file_size: doc.file_size,
+                is_public: !!doc.is_public,
+                title_public: !!doc.title_public,
                 creator_wallet_address: doc.creator_wallet_address,
                 counterparty_email: doc.counterparty_email,
                 counterparty_wallet_address: doc.counterparty_wallet_address,
@@ -857,14 +1005,14 @@ router.get('/documents/:docUuid/pdf', requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// FINALIZE
+// FINALIZE (retry for failed auto-seal)
 // ─────────────────────────────────────────────
 
 /**
  * POST /api/documents/:docUuid/finalize
  * Creator finalizes: send seal TX with structured payload.
- * No PDF modification — the original document IS the sealed document.
- * Payload: NOTARY:1|partyA_wallet|partyB_wallet|original_pdf_hash
+ * Used when auto-seal failed and doc is stuck at pending_finalization.
+ * Handles both single-signer and two-party documents.
  */
 router.post('/documents/:docUuid/finalize', requireAuth, async (req, res) => {
     try {
@@ -882,7 +1030,7 @@ router.post('/documents/:docUuid/finalize', requireAuth, async (req, res) => {
             return res.status(403).json({ error: 'Only the creator can finalize' });
         }
         if (doc.status !== 'pending_finalization') {
-            return res.status(400).json({ error: 'Both parties must sign before finalizing' });
+            return res.status(400).json({ error: 'Document is not ready for finalization' });
         }
 
         // Send seal transaction with structured payload
@@ -890,7 +1038,7 @@ router.post('/documents/:docUuid/finalize', requireAuth, async (req, res) => {
         try {
             sealTx = await keystoneService.sendSealTx(
                 doc.creator_wallet_address,
-                doc.counterparty_wallet_address,
+                doc.counterparty_wallet_address || null, // null for single-signer
                 doc.original_hash
             );
         } catch (txErr) {
@@ -916,7 +1064,7 @@ router.post('/documents/:docUuid/finalize', requireAuth, async (req, res) => {
             sealTxId: sealTx.txId,
             documentHash: doc.original_hash,
             partyAWallet: doc.creator_wallet_address,
-            partyBWallet: doc.counterparty_wallet_address,
+            partyBWallet: doc.counterparty_wallet_address || null,
             notarizedAt: new Date().toISOString(),
             explorerUrl: 'https://explorer.kaspa.org/txs/'
         };
@@ -983,17 +1131,17 @@ router.get('/documents/:docUuid/download', requireAuth, async (req, res) => {
 
 /**
  * GET /api/proof/:docUuid
- * Public proof endpoint — returns only on-chain verifiable data.
- * No document title, no file content — just hashes, wallets, timestamps, TX.
+ * Public proof endpoint — returns on-chain verifiable data.
+ * Also returns visibility flags so frontend can conditionally show title/PDF.
  */
 router.get('/proof/:docUuid', async (req, res) => {
     try {
         const { docUuid } = req.params;
 
         const [rows] = await db.execute(
-            `SELECT doc_uuid, status, original_hash,
+            `SELECT doc_uuid, title, title_public, is_public, category, status, original_hash,
                     creator_wallet_address, counterparty_wallet_address,
-                    seal_tx_id,
+                    seal_tx_id, seal_payload,
                     creator_signed_at, counterparty_signed_at, notarized_at
              FROM notary_documents WHERE doc_uuid = ?`,
             [docUuid]
@@ -1010,10 +1158,15 @@ router.get('/proof/:docUuid', async (req, res) => {
             success: true,
             proof: {
                 doc_uuid: doc.doc_uuid,
+                title: doc.title_public ? doc.title : null,
+                title_public: !!doc.title_public,
+                is_public: !!doc.is_public,
+                category: doc.category || 'contract',
                 document_hash: doc.original_hash,
                 party_a: doc.creator_wallet_address,
-                party_b: doc.counterparty_wallet_address,
+                party_b: doc.counterparty_wallet_address || null,
                 seal_tx_id: doc.seal_tx_id,
+                seal_payload: doc.seal_payload,
                 party_a_signed: doc.creator_signed_at,
                 party_b_signed: doc.counterparty_signed_at,
                 notarized_at: doc.notarized_at
@@ -1022,6 +1175,36 @@ router.get('/proof/:docUuid', async (req, res) => {
     } catch (err) {
         console.error('Proof error:', err);
         res.status(500).json({ error: 'Failed to load proof' });
+    }
+});
+
+// ─────────────────────────────────────────────
+// HASH TOOL (public, no auth)
+// ─────────────────────────────────────────────
+
+/**
+ * POST /api/hash
+ * Public utility — upload a file and get its SHA-256 hash.
+ * No file stored, no record created. Pure utility.
+ */
+router.post('/hash', upload.single('pdf'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'File required' });
+        }
+
+        const crypto = require('crypto');
+        const hash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+
+        res.json({
+            success: true,
+            hash,
+            file_name: req.file.originalname,
+            file_size: req.file.size
+        });
+    } catch (err) {
+        console.error('Hash error:', err);
+        res.status(500).json({ error: 'Failed to hash file' });
     }
 });
 
@@ -1036,8 +1219,8 @@ router.get('/proof/:docUuid', async (req, res) => {
 router.get('/documents', requireAuth, async (req, res) => {
     try {
         const [rows] = await db.execute(
-            `SELECT doc_uuid, title, status, counterparty_email, counterparty_wallet_address,
-                    original_hash, created_at, creator_signed_at, counterparty_signed_at, notarized_at
+            `SELECT doc_uuid, title, status, category, counterparty_email, counterparty_wallet_address,
+                    creator_wallet_address, original_hash, created_at, creator_signed_at, counterparty_signed_at, notarized_at
              FROM notary_documents 
              WHERE creator_wallet_address = ? OR counterparty_wallet_address = ?
              ORDER BY created_at DESC`,
@@ -1048,9 +1231,11 @@ router.get('/documents', requireAuth, async (req, res) => {
             doc_uuid: doc.doc_uuid,
             title: doc.title,
             status: doc.status,
+            category: doc.category || 'contract',
             counterparty_email: doc.counterparty_email,
             counterparty_wallet_address: doc.counterparty_wallet_address,
             is_creator: doc.creator_wallet_address === req.walletAddress,
+            single_signer: !doc.counterparty_email,
             original_hash: doc.original_hash,
             created_at: doc.created_at,
             creator_signed_at: doc.creator_signed_at,
@@ -1066,4 +1251,3 @@ router.get('/documents', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
-

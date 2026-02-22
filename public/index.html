@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kaspa Notary — by Kaspero Labs</title>
+    <title>Kaspa Notary - by Kaspero Labs</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -32,66 +32,51 @@
         </div>
     </header>
 
-
     <!-- Navigation -->
     <nav class="nav" id="site-nav">
-        <button class="nav-item active" id="nav-archive">Archive</button>
-        <button class="nav-item hidden" id="nav-my-docs">My Documents</button>
-        <button class="nav-item" id="nav-how">How it Works</button>
-        <button class="nav-item hidden" id="nav-new-doc">+ New Document</button>
+        <!-- Public nav - always visible -->
+        <div class="nav-group" id="nav-public">
+            <button class="nav-item" id="nav-how">How it Works</button>
+            <button class="nav-item active" id="nav-archive">Archive</button>
+            <button class="nav-item" id="nav-hash">Hash a File</button>
+        </div>
+        <!-- Auth nav - visible when connected -->
+        <div class="nav-group hidden" id="nav-auth">
+            <span class="nav-divider"></span>
+            <button class="nav-item" id="nav-my-docs">My Documents</button>
+            <button class="nav-item" id="nav-new-doc">+ New Document</button>
+        </div>
     </nav>
 
     <!-- Main content area -->
     <main class="main">
 
-		<!-- ============ PUBLIC ARCHIVE (logged-out home) ============ -->
-        <section class="screen" id="screen-archive">
-            <div class="archive-hero">
-                <h1>Kaspa Notary</h1>
-                <p class="archive-sub">Seal agreements on the Kaspa blockchain. Two parties, one immutable witness.</p>
-                <p class="archive-hint">Connect a wallet to create and manage your own documents.</p>
-            </div>
-            <div class="archive-section">
-                <h2>Notarized Documents</h2>
-                <p class="archive-desc">Public record of documents sealed on the Kaspa blockchain.</p>
-                <div id="archive-list" class="archive-list">
-                    <div class="dash-empty" id="archive-empty">
-                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
-                            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-                            <polyline points="14,2 14,8 20,8"/>
-                        </svg>
-                        <p>No notarized documents yet</p>
-                    </div>
-                </div>
-            </div>
-        </section>
-
         <!-- ============ HOW IT WORKS ============ -->
         <section class="screen hidden" id="screen-how">
             <div class="how-page">
                 <h1>How Kaspa Notary Works</h1>
-                <p class="how-intro">A traditional notary witnesses an agreement between two parties. Kaspa Notary does the same thing — except the witness is a blockchain that can never lose records, alter them, or be bribed.</p>
+                <p class="how-intro">A traditional notary witnesses an agreement between two parties. Kaspa Notary does the same thing - except the witness is a blockchain that can never lose records, alter them, or be bribed.</p>
 
                 <div class="how-steps">
                     <div class="how-step">
                         <div class="how-step-num">1</div>
                         <div class="how-step-content">
                             <h3>Upload & Sign</h3>
-                            <p>Upload a PDF of your agreement. Type your name to sign, and pay a small notary fee. Your document is hashed — a unique digital fingerprint — and recorded.</p>
+                            <p>Upload a PDF of your agreement. Type your name to sign, and pay a small notary fee. Your document is hashed - a unique digital fingerprint - and recorded.</p>
                         </div>
                     </div>
                     <div class="how-step">
                         <div class="how-step-num">2</div>
                         <div class="how-step-content">
                             <h3>Counterparty Signs</h3>
-                            <p>Send an invite link to the other party. They review the document, connect any Kaspa wallet, and sign. No account needed — just a wallet.</p>
+                            <p>Send an invite link to the other party. They review the document, connect any Kaspa wallet, and sign. No account needed - just a wallet. For single-signer documents, this step is skipped entirely.</p>
                         </div>
                     </div>
                     <div class="how-step">
                         <div class="how-step-num">3</div>
                         <div class="how-step-content">
                             <h3>Sealed on the Blockchain</h3>
-                            <p>Once both parties sign, a seal transaction is permanently recorded on the Kaspa network. The document's fingerprint, both wallet addresses, and the timestamp are embedded in the transaction — immutable proof that both parties agreed to this exact document at this exact time.</p>
+                            <p>Once all parties sign, a seal transaction is permanently recorded on the Kaspa blockDAG. The document's fingerprint, wallet addresses, and the timestamp are embedded in the transaction - immutable proof of agreement at an exact moment in time.</p>
                         </div>
                     </div>
                 </div>
@@ -105,11 +90,11 @@
                         </div>
                         <div class="how-card">
                             <h4>Cannot be altered</h4>
-                            <p>The document's cryptographic hash is sealed on-chain. Change even one pixel of the PDF and the hash won't match — tampering is immediately detectable.</p>
+                            <p>The document's cryptographic hash is sealed on-chain. Change even one pixel of the PDF and the hash won't match - tampering is immediately detectable.</p>
                         </div>
                         <div class="how-card">
                             <h4>Independently verifiable</h4>
-                            <p>Anyone can check the seal transaction on the public Kaspa blockchain. No need to trust us — verify it yourself.</p>
+                            <p>Anyone can check the seal transaction on the public Kaspa blockchain. No need to trust us - verify it yourself.</p>
                         </div>
                         <div class="how-card">
                             <h4>Works with any wallet</h4>
@@ -120,19 +105,118 @@
 
                 <div class="how-section">
                     <h2>Use cases</h2>
-                    <p>Freelance contracts, rental agreements, intellectual property timestamps, partnership agreements, proof of concept filings, research paper priority — anything where you need provable, timestamped agreement between two parties.</p>
+                    <p>Freelance contracts, rental agreements, intellectual property timestamps, partnership agreements, NDAs, proof of concept filings - anything where you need provable, timestamped agreement.</p>
                 </div>
 
                 <div class="how-section how-footer">
-                    <p>Built by <strong>Kaspero Labs LLC</strong> (Wyoming). The same team behind Keystone wallet and KasperoPay.</p>
+                    <p>Built by <strong>Kaspero Labs LLC</strong>.</p>
                 </div>
             </div>
         </section>
 
-        <!-- ============ DASHBOARD ============ -->
+        <!-- ============ PUBLIC ARCHIVE ============ -->
+        <section class="screen" id="screen-archive">
+            <div class="archive-hero">
+                <h1>Kaspa Notary</h1>
+                <p class="archive-sub">Seal agreements on the Kaspa blockchain. Immutable proof that cannot be backdated.</p>
+                <p class="archive-hint" id="archive-hint">Connect a wallet to create and manage your own documents.</p>
+            </div>
+
+            <div class="archive-section">
+                <h2>Notarized Documents</h2>
+                <p class="archive-desc">Public record of documents sealed on the Kaspa blockchain.</p>
+
+                <!-- Search + Filters -->
+                <div class="archive-controls">
+                    <div class="archive-search">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <input type="text" id="archive-search-input" placeholder="Search by title, hash, or wallet address...">
+                    </div>
+                    <div class="archive-filters">
+                        <select id="archive-filter-category">
+                            <option value="all">All categories</option>
+                            <option value="contract">Contract</option>
+                            <option value="agreement">Agreement</option>
+                            <option value="nda">NDA</option>
+                            <option value="patent">Patent / IP</option>
+                            <option value="certificate">Certificate</option>
+                            <option value="other">Other</option>
+                        </select>
+                        <select id="archive-filter-period">
+                            <option value="all">All time</option>
+                            <option value="week">Last week</option>
+                            <option value="month">Last month</option>
+                            <option value="3months">Last 3 months</option>
+                            <option value="year">Last year</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="archive-list" class="archive-list">
+                    <div class="dash-empty" id="archive-empty">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
+                            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                            <polyline points="14,2 14,8 20,8"/>
+                        </svg>
+                        <p>No notarized documents yet</p>
+                    </div>
+                </div>
+
+                <!-- Pagination -->
+                <div class="archive-pagination hidden" id="archive-pagination">
+                    <button class="btn btn-secondary btn-sm" id="archive-prev" disabled>Previous</button>
+                    <span class="archive-page-info" id="archive-page-info"></span>
+                    <button class="btn btn-secondary btn-sm" id="archive-next">Next</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ HASH A FILE (public tool) ============ -->
+        <section class="screen hidden" id="screen-hash">
+            <div class="hash-page">
+                <h1>Hash a File</h1>
+                <p class="hash-intro">Drop any PDF to see its SHA-256 fingerprint. This hash is unique to the file - change a single byte and it changes completely. No data leaves your browser.</p>
+
+                <div class="upload-zone" id="hash-upload-zone">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                        <polyline points="17,8 12,3 7,8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    <p>Drag & drop or <strong>browse files</strong></p>
+                    <p class="formats">PDF - up to 10 MB</p>
+                    <input type="file" id="hash-file-input" accept=".pdf" class="hidden">
+                </div>
+
+                <div class="hash-result hidden" id="hash-result">
+                    <div class="hash-result-header">
+                        <div class="file-icon">PDF</div>
+                        <div class="file-info">
+                            <div class="name" id="hash-file-name"></div>
+                            <div class="meta" id="hash-file-meta"></div>
+                        </div>
+                    </div>
+                    <div class="hash-value-box">
+                        <label>SHA-256 Hash</label>
+                        <div class="hash-value-row">
+                            <code class="mono" id="hash-value"></code>
+                            <button class="btn btn-secondary btn-sm" id="hash-copy">Copy</button>
+                        </div>
+                    </div>
+                    <button class="btn btn-secondary" id="hash-reset">Hash Another File</button>
+                </div>
+
+                <div class="hash-explain">
+                    <h3>What is this for?</h3>
+                    <p>A cryptographic hash is a digital fingerprint. When a document is notarized on Kaspa Notary, its hash is permanently sealed on the blockchain. Later, anyone can re-hash the file and compare - if it matches, the document is exactly what was originally signed. If it doesn't, it's been tampered with.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ DASHBOARD (My Documents) ============ -->
         <section class="screen hidden" id="screen-dashboard">
             <div class="dash-header">
-                <h2>Your Documents</h2>
+                <h2>My Documents</h2>
                 <button class="btn btn-primary" id="btn-new-doc">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     New Document
@@ -145,29 +229,48 @@
                         <polyline points="14,2 14,8 20,8"/>
                     </svg>
                     <p>No documents yet</p>
-                    <p class="small">Create your first notarized agreement.</p>
+                    <p class="small">Create your first notarized document.</p>
                 </div>
             </div>
         </section>
 
-        <!-- ============ CREATE DOCUMENT (Upload + Sign + Pay unified) ============ -->
+        <!-- ============ CREATE DOCUMENT (Wizard: Document → Parties → Sign & Pay → Complete) ============ -->
         <section class="screen hidden" id="screen-create">
             <div class="screen-back" id="btn-back-dash">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15,18 9,12 15,6"/></svg>
                 Back
             </div>
-            <h2>New Agreement</h2>
-            <p class="screen-sub">Upload, sign, and seal — all in one step.</p>
+            <h2>New Document</h2>
 
-            <!-- Step 1: Document Details -->
-            <div id="create-step-details">
+            <!-- Progress indicator -->
+            <div class="wizard-progress">
+                <div class="wizard-step active" id="wiz-step-1"><span class="wizard-num">1</span> Document</div>
+                <div class="wizard-step" id="wiz-step-2"><span class="wizard-num">2</span> Parties</div>
+                <div class="wizard-step" id="wiz-step-3"><span class="wizard-num">3</span> Sign & Pay</div>
+                <div class="wizard-step" id="wiz-step-4"><span class="wizard-num">4</span> Complete</div>
+            </div>
+
+            <!-- STEP 1: Document -->
+            <div class="wizard-panel" id="create-panel-1">
                 <div class="form-group">
-                    <label for="input-title">Agreement title</label>
-                    <input type="text" id="input-title" placeholder="e.g. Freelance Design Contract — Q1 2026">
+                    <label for="input-title">Document title</label>
+                    <input type="text" id="input-title" placeholder="e.g. Freelance Design Contract - Q1 2026">
                 </div>
 
                 <div class="form-group">
-                    <label>Document</label>
+                    <label for="input-category">Category</label>
+                    <select id="input-category">
+                        <option value="contract">Contract</option>
+                        <option value="agreement">Agreement</option>
+                        <option value="nda">NDA</option>
+                        <option value="patent">Patent / IP</option>
+                        <option value="certificate">Certificate</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Upload PDF</label>
                     <div class="upload-zone" id="upload-zone">
                         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
@@ -175,7 +278,7 @@
                             <line x1="12" y1="3" x2="12" y2="15"/>
                         </svg>
                         <p>Drag & drop or <strong>browse files</strong></p>
-                        <p class="formats">PDF — up to 10 MB</p>
+                        <p class="formats">PDF - up to 10 MB</p>
                         <input type="file" id="file-input" accept=".pdf" class="hidden">
                     </div>
                     <div class="file-preview hidden" id="file-preview">
@@ -191,85 +294,140 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="input-email">Counterparty email</label>
-                    <input type="email" id="input-email" placeholder="other.party@example.com">
-                    <p class="hint">They'll receive a link to review and sign. Any Kaspa wallet works.</p>
-                </div>
-
-                <div class="form-group">
-                    <label for="input-creator-email">Your email</label>
-                    <input type="email" id="input-creator-email" placeholder="your@email.com">
-                    <p class="hint">For your confirmation receipt when the document is sealed.</p>
+                    <label>Visibility</label>
+                    <div class="visibility-options">
+                        <label class="visibility-option">
+                            <input type="checkbox" id="input-title-public" checked>
+                            <span>Show title in public archive</span>
+                        </label>
+                        <label class="visibility-option">
+                            <input type="checkbox" id="input-is-public">
+                            <span>Allow anyone to view the PDF</span>
+                        </label>
+                    </div>
                 </div>
 
                 <div class="form-group">
                     <label for="input-note">Note <span class="optional">(optional)</span></label>
-                    <textarea id="input-note" rows="3" placeholder="Any additional context for the other party..."></textarea>
+                    <textarea id="input-note" rows="2" placeholder="Context for the other party..."></textarea>
                 </div>
 
-                <!-- Visibility controls -->
-                <div class="form-group">
-                    <label>Document visibility</label>
-                    <div class="visibility-options">
-                        <label class="visibility-option">
-                            <input type="checkbox" id="input-is-public">
-                            <span>Show in public archive <span class="optional">— anyone can verify and view the PDF</span></span>
-                        </label>
-                        <label class="visibility-option">
-                            <input type="checkbox" id="input-title-public" checked>
-                            <span>Show title publicly <span class="optional">— uncheck to hide the title from non-signers</span></span>
+                <button class="btn btn-primary btn-full" id="btn-wiz-next-1" disabled>Continue to Parties</button>
+            </div>
+
+            <!-- STEP 2: Parties -->
+            <div class="wizard-panel hidden" id="create-panel-2">
+                <div class="parties-section">
+                    <div class="party-card party-you">
+                        <div class="party-header">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                            You (Party A)
+                        </div>
+                        <p class="party-wallet" id="party-a-wallet"></p>
+                        <div class="form-group">
+                            <label for="input-creator-email">Your email</label>
+                            <input type="email" id="input-creator-email" placeholder="your@email.com">
+                            <p class="hint">For your confirmation receipt when the document is sealed.</p>
+                        </div>
+                    </div>
+
+                    <div class="party-toggle">
+                        <label class="toggle-label">
+                            <input type="checkbox" id="toggle-counterparty">
+                            <span>Add a counterparty (Party B)</span>
                         </label>
                     </div>
+
+                    <div class="party-card party-b hidden" id="party-b-section">
+                        <div class="party-header">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+                            Counterparty (Party B)
+                        </div>
+                        <div class="form-group">
+                            <label for="input-email">Their email address</label>
+                            <input type="email" id="input-email" placeholder="counterparty@example.com">
+                            <p class="hint">They'll receive a link to review and sign. Any Kaspa wallet works.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="party-summary" id="party-summary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    <span id="party-summary-text">Single-signature document - will be sealed immediately after you sign.</span>
+                </div>
+
+                <div class="wizard-nav">
+                    <button class="btn btn-secondary" id="btn-wiz-back-2">Back</button>
+                    <button class="btn btn-primary" id="btn-wiz-next-2">Continue to Sign</button>
                 </div>
             </div>
 
-            <!-- Step 2: Sign (revealed after upload completes) -->
-            <div class="hidden" id="create-step-sign">
-                <div class="step-divider">
-                    <span class="step-badge">Sign</span>
+            <!-- STEP 3: Sign & Pay -->
+            <div class="wizard-panel hidden" id="create-panel-3">
+                <div class="sign-section">
+                    <h3>Review & Sign</h3>
+                    <div class="sign-summary" id="sign-summary"></div>
+
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-weight: 400;">
+                            <input type="checkbox" id="create-agree" style="margin-top: 3px;">
+                            <span>I have read this document and agree to its terms.</span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <input type="text" id="create-sig-name" placeholder="Type your full name to sign">
+                    </div>
                 </div>
-                <div class="form-group" style="margin-bottom: 12px;">
-                    <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-weight: 400;">
-                        <input type="checkbox" id="create-agree" style="margin-top: 3px;">
-                        <span>I have read this document and agree to its terms.</span>
-                    </label>
+
+                <div class="cost-estimate" id="cost-estimate">
+                    <h4>Cost</h4>
+                    <div class="cost-row">
+                        <span>Notary fee</span>
+                        <span class="cost-value" id="cost-fee">- KAS</span>
+                    </div>
+                    <p class="cost-note">Covers the blockchain seal transaction.</p>
                 </div>
-                <div class="form-group">
-                    <input type="text" id="create-sig-name" placeholder="Type your full name to sign">
+
+                <button class="btn btn-primary btn-full" id="btn-create-submit" disabled>Upload, Sign & Pay</button>
+
+                <!-- Payment widget placeholder (shown after upload) -->
+                <div class="hidden" id="payment-section">
+                    <div class="cost-estimate" style="margin-top: 20px; border-color: var(--accent); background: #eff6ff;">
+                        <h4>Pay Notary Fee</h4>
+                        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">Pay to seal your signed document on the blockchain.</p>
+                        <button class="btn btn-primary btn-full" id="btn-pay-fee">Pay <span id="pay-fee-amount"></span> KAS</button>
+                    </div>
+                </div>
+
+                <div class="wizard-nav" id="wiz-nav-3">
+                    <button class="btn btn-secondary" id="btn-wiz-back-3">Back</button>
                 </div>
             </div>
 
-            <!-- Cost + Submit -->
-            <div class="cost-estimate" id="cost-estimate">
-                <h4>Estimated cost</h4>
-                <div class="cost-row">
-                    <span>Notary fee</span>
-                    <span class="cost-value" id="cost-fee">— KAS</span>
+            <!-- STEP 4: Complete -->
+            <div class="wizard-panel hidden" id="create-panel-4">
+                <!-- Single-signer complete -->
+                <div class="hidden" id="complete-single">
+                    <div class="status-banner confirmed">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
+                        Document sealed on the Kaspa blockchain!
+                    </div>
+                    <p class="complete-text">Your document has been signed and permanently recorded.</p>
+                    <button class="btn btn-primary btn-full" id="btn-view-sealed">View Proof Page</button>
                 </div>
-                <p class="cost-note">Covers the blockchain seal transaction for this agreement.</p>
-            </div>
 
-            <button class="btn btn-primary btn-full" id="btn-create-submit" disabled>Upload, Sign & Pay</button>
-
-            <!-- Payment widget placeholder (shown inline) -->
-            <div class="hidden" id="payment-section">
-                <div class="cost-estimate" style="margin-top: 20px; border-color: var(--accent); background: #eff6ff;">
-                    <h4>Pay Notary Fee</h4>
-                    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">Pay to seal your signed agreement on the blockchain.</p>
-                    <button class="btn btn-primary btn-full" id="btn-pay-fee">Pay <span id="pay-fee-amount"></span> KAS</button>
-                </div>
-            </div>
-
-            <!-- Post-sign: invite options (shown after payment completes) -->
-            <div class="hidden" id="create-post-sign">
-                <div class="status-banner confirmed" style="margin-top: 20px;">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
-                    Signed! Now send it to your counterparty.
-                </div>
-                <div class="invite-options" style="margin-top: 16px;">
-                    <button class="btn btn-primary btn-full" id="btn-send-invite-create" style="margin-bottom: 8px;">Send Invite Email</button>
-                    <button class="btn btn-secondary btn-full" id="btn-copy-link-create">Copy Invite Link</button>
-                    <p class="hint" id="create-invite-status" style="margin-top: 8px;"></p>
+                <!-- Two-party complete (waiting for counterparty) -->
+                <div class="hidden" id="complete-two-party">
+                    <div class="status-banner confirmed">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
+                        Signed! Now send it to your counterparty.
+                    </div>
+                    <div class="invite-options">
+                        <button class="btn btn-primary btn-full" id="btn-send-invite-create" style="margin-bottom: 8px;">Send Invite Email</button>
+                        <button class="btn btn-secondary btn-full" id="btn-copy-link-create">Copy Invite Link</button>
+                        <p class="hint" id="create-invite-status" style="margin-top: 8px;"></p>
+                    </div>
+                    <button class="btn btn-secondary btn-full" id="btn-goto-doc" style="margin-top: 16px;">Go to Document</button>
                 </div>
             </div>
         </section>
@@ -278,19 +436,19 @@
         <section class="screen hidden" id="screen-document">
             <div class="screen-back" id="btn-back-dash2">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15,18 9,12 15,6"/></svg>
-                Dashboard
+                My Documents
             </div>
 
             <!-- Status banner -->
             <div class="status-banner" id="doc-status-banner"></div>
 
-			<!-- Agreement header -->
+            <!-- Agreement header -->
             <div class="agreement-header">
                 <h1 id="doc-title"></h1>
                 <div class="agreement-meta" id="doc-meta"></div>
             </div>
 
-            <!-- Notary seal (shown after notarized — positioned prominently) -->
+            <!-- Notary seal (shown after notarized) -->
             <div class="notary-seal hidden" id="notary-seal">
                 <div class="seal">
                     <span class="seal-text">Kaspa Notary</span>
@@ -301,8 +459,6 @@
                     <span class="seal-date" id="seal-date"></span>
                 </div>
             </div>
-
-            <!-- Document card -->
 
             <!-- Document card -->
             <div class="document-card">
@@ -324,33 +480,24 @@
                 </div>
             </div>
 
-            <!-- Signature fields placement (creator only, before signing) -->
-            <div class="sig-placement hidden" id="sig-placement">
-                <h3>Place Signature Fields</h3>
-                <p>Click on the document above to place signature fields, then assign each to you or the counterparty.</p>
-                <div class="sig-fields-list" id="sig-fields-list"></div>
-                <button class="btn btn-secondary" id="btn-add-sig-field">Add Signature Field</button>
-                <button class="btn btn-primary btn-full" id="btn-save-fields" disabled>Save Fields & Continue</button>
-            </div>
-
             <!-- Signatures section -->
             <div class="signatures-section" id="signatures-section">
                 <div class="signatures-header"><h3>Signatures</h3></div>
                 <div id="sig-rows"></div>
             </div>
 
-            <!-- Draft actions (creator only — edit, pay, delete) -->
+            <!-- Draft actions -->
             <div class="hidden" id="draft-actions">
                 <div class="sign-action">
                     <h3>This document is a draft</h3>
-                    <p>Review the details above, then pay the notary fee to sign and proceed. You can also edit or delete this draft.</p>
+                    <p>Review the details above, then pay the notary fee to sign and proceed.</p>
                     <button class="btn btn-primary btn-full" id="btn-draft-pay" style="margin-bottom: 8px;">Pay <span id="draft-pay-amount"></span> KAS & Sign</button>
                     <button class="btn btn-secondary btn-full" id="btn-draft-edit" style="margin-bottom: 8px;">Edit Draft</button>
                     <button class="btn btn-full" id="btn-draft-delete" style="color: var(--red); border: 1px solid var(--red); background: white;">Delete Draft</button>
                 </div>
             </div>
 
-            <!-- Edit draft form (shown when editing) -->
+            <!-- Edit draft form -->
             <div class="hidden" id="draft-edit-form">
                 <div class="sign-action">
                     <h3>Edit Draft</h3>
@@ -359,7 +506,7 @@
                         <input type="text" id="edit-title">
                     </div>
                     <div class="form-group">
-                        <label for="edit-email">Counterparty email</label>
+                        <label for="edit-email">Counterparty email <span class="optional">(leave empty for single-signer)</span></label>
                         <input type="email" id="edit-email">
                     </div>
                     <div class="form-group">
@@ -391,15 +538,15 @@
                 <button class="btn btn-primary btn-full" id="btn-sign" disabled>Sign Document</button>
             </div>
 
-            <!-- Invite action (creator, after signing) -->
+            <!-- Invite action (creator, after signing, two-party only) -->
             <div class="invite-action hidden" id="invite-action">
                 <button class="btn btn-primary btn-full" id="btn-send-invite">Send Invitation to Counterparty</button>
                 <p class="hint" id="invite-status"></p>
             </div>
 
-            <!-- Finalize action (creator, after both signed) -->
+            <!-- Finalize action (retry for failed auto-seal) -->
             <div class="finalize-action hidden" id="finalize-action">
-                <button class="btn btn-primary btn-full" id="btn-finalize">Finalize & Seal on Blockchain</button>
+                <button class="btn btn-primary btn-full" id="btn-finalize">Retry Blockchain Seal</button>
             </div>
 
             <!-- Chain proof (after notarized) -->
@@ -416,7 +563,102 @@
 
             <!-- Download signed PDF -->
             <div class="download-section hidden" id="download-section">
-                <button class="btn btn-primary btn-full" id="btn-download-signed">Download Signed Document</button>
+                <button class="btn btn-primary btn-full" id="btn-download-signed">Download Notarized Document</button>
+            </div>
+        </section>
+
+        <!-- ============ PROOF PAGE (public, enhanced) ============ -->
+        <section class="screen hidden" id="screen-proof">
+            <div class="proof-page">
+                <div class="proof-badge">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                        <polyline points="9,12 11,14 15,10"/>
+                    </svg>
+                    <span>Sealed on the Kaspa Blockchain</span>
+                </div>
+
+                <!-- Notary seal -->
+                <div class="notary-seal" id="proof-seal">
+                    <div class="seal">
+                        <span class="seal-text">Kaspa Notary</span>
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                            <polyline points="9,12 11,14 15,10"/>
+                        </svg>
+                        <span class="seal-date" id="proof-seal-date"></span>
+                    </div>
+                </div>
+
+                <div class="proof-title" id="proof-title"></div>
+                <div class="proof-category" id="proof-category"></div>
+
+                <div class="proof-details">
+                    <div class="proof-detail-row">
+                        <span class="proof-label">Document Hash</span>
+                        <span class="proof-value mono" id="proof-hash"></span>
+                    </div>
+                    <div class="proof-detail-row">
+                        <span class="proof-label">Sealed</span>
+                        <span class="proof-value" id="proof-date"></span>
+                    </div>
+                    <div class="proof-detail-row">
+                        <span class="proof-label">Party A</span>
+                        <span class="proof-value mono" id="proof-party-a"></span>
+                    </div>
+                    <div class="proof-detail-row" id="proof-party-b-row">
+                        <span class="proof-label">Party B</span>
+                        <span class="proof-value mono" id="proof-party-b"></span>
+                    </div>
+                    <div class="proof-detail-row">
+                        <span class="proof-label">Seal Transaction</span>
+                        <span class="proof-value" id="proof-tx"></span>
+                    </div>
+                    <div class="proof-detail-row" id="proof-party-a-signed-row">
+                        <span class="proof-label">Party A Signed</span>
+                        <span class="proof-value" id="proof-party-a-signed"></span>
+                    </div>
+                    <div class="proof-detail-row" id="proof-party-b-signed-row">
+                        <span class="proof-label">Party B Signed</span>
+                        <span class="proof-value" id="proof-party-b-signed"></span>
+                    </div>
+                </div>
+
+                <!-- Public PDF viewer (if document is public) -->
+                <div class="proof-document hidden" id="proof-document">
+                    <div class="document-card">
+                        <div class="document-card-header">
+                            <h3>Document</h3>
+                            <a href="#" class="btn btn-secondary btn-sm" id="btn-proof-view-pdf" target="_blank">Open PDF</a>
+                        </div>
+                        <div class="document-body">
+                            <div class="pdf-viewer" id="proof-pdf-viewer">
+                                <canvas id="proof-pdf-canvas"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Signer-only content -->
+                <div class="proof-signer-note hidden" id="proof-signer-note">
+                    <p id="proof-access-msg"></p>
+                </div>
+
+                <!-- Verify tool -->
+                <div class="proof-verify">
+                    <h3>Verify a Document</h3>
+                    <p>Drop the original file here to check if its hash matches the sealed record.</p>
+                    <div class="upload-zone upload-zone-sm" id="verify-upload-zone">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                            <polyline points="17,8 12,3 7,8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                        <p>Drop PDF to verify</p>
+                        <input type="file" id="verify-file-input" accept=".pdf" class="hidden">
+                    </div>
+                    <div class="verify-result hidden" id="verify-result"></div>
+                </div>
             </div>
         </section>
 
@@ -470,7 +712,7 @@
                     <div class="form-group">
                         <input type="text" id="invite-sig-name" placeholder="Type your full name to sign">
                     </div>
-					<div class="form-group hidden" id="invite-email-group" style="margin-top: 12px;">
+                    <div class="form-group hidden" id="invite-email-group" style="margin-top: 12px;">
                         <input type="email" id="invite-email" placeholder="Your email address">
                         <p class="hint">So we can send you a confirmation with the blockchain proof.</p>
                     </div>
@@ -506,7 +748,7 @@
         }
     </script>
 
-    <!-- KasperoPay widget (hidden mode — triggered programmatically) -->
+    <!-- KasperoPay widget (hidden mode - triggered programmatically) -->
     <div id="kaspero-pay-button"
          data-merchant="kpm_jyrajkk8"
          data-wallets="kasware,kastle,keystone,mobile,kasanova,qrcode"
@@ -518,4 +760,3 @@
     <script src="/notary_app.js"></script>
 </body>
 </html>
-
