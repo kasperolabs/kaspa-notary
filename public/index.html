@@ -57,30 +57,70 @@
                 <h1>How Kaspa Notary Works</h1>
                 <p class="how-intro">A traditional notary witnesses an agreement between two parties. Kaspa Notary does the same thing - except the witness is a blockchain that can never lose records, alter them, or be bribed.</p>
 
-                <div class="how-steps">
-                    <div class="how-step">
-                        <div class="how-step-num">1</div>
-                        <div class="how-step-content">
-                            <h3>Upload & Sign</h3>
-                            <p>Upload a PDF of your agreement. Type your name to sign, and pay a small notary fee. Your document is hashed - a unique digital fingerprint - and recorded.</p>
+                <!-- Two modes -->
+                <div class="how-section">
+                    <h2>Two ways to notarize</h2>
+                    <p class="how-section-intro">Kaspa Notary supports both agreements between two parties and documents signed by a single party.</p>
+                </div>
+
+                <!-- Two-party flow -->
+                <div class="how-flow">
+                    <h3 class="how-flow-title">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+                        Two-party agreement
+                    </h3>
+                    <p class="how-flow-desc">For contracts, NDAs, and agreements where both sides need to sign.</p>
+                    <div class="how-steps">
+                        <div class="how-step">
+                            <div class="how-step-num">1</div>
+                            <div class="how-step-content">
+                                <h3>Upload & Sign</h3>
+                                <p>Upload a PDF of your agreement. Add your counterparty's email. Type your name to sign and pay a small notary fee in KAS.</p>
+                            </div>
                         </div>
-                    </div>
-                    <div class="how-step">
-                        <div class="how-step-num">2</div>
-                        <div class="how-step-content">
-                            <h3>Counterparty Signs</h3>
-                            <p>Send an invite link to the other party. They review the document, connect any Kaspa wallet, and sign. No account needed - just a wallet. For single-signer documents, this step is skipped entirely.</p>
+                        <div class="how-step">
+                            <div class="how-step-num">2</div>
+                            <div class="how-step-content">
+                                <h3>Counterparty Signs</h3>
+                                <p>Your counterparty receives an invite link. They review the document, connect any Kaspa wallet, and sign. No account or signup needed - just a wallet.</p>
+                            </div>
                         </div>
-                    </div>
-                    <div class="how-step">
-                        <div class="how-step-num">3</div>
-                        <div class="how-step-content">
-                            <h3>Sealed on the Blockchain</h3>
-                            <p>Once all parties sign, a seal transaction is permanently recorded on the Kaspa blockDAG. The document's fingerprint, wallet addresses, and the timestamp are embedded in the transaction - immutable proof of agreement at an exact moment in time.</p>
+                        <div class="how-step">
+                            <div class="how-step-num">3</div>
+                            <div class="how-step-content">
+                                <h3>Sealed on the Blockchain</h3>
+                                <p>Once both parties sign, a seal transaction is automatically recorded on the Kaspa blockDAG. The document's fingerprint, both wallet addresses, and the timestamp are embedded in the transaction - immutable proof of agreement.</p>
+                            </div>
                         </div>
                     </div>
                 </div>
 
+                <!-- Single-signer flow -->
+                <div class="how-flow">
+                    <h3 class="how-flow-title">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                        Single-signer document
+                    </h3>
+                    <p class="how-flow-desc">For timestamping intellectual property, patents, creative works, or any document where you need to prove it existed at a specific moment.</p>
+                    <div class="how-steps">
+                        <div class="how-step">
+                            <div class="how-step-num">1</div>
+                            <div class="how-step-content">
+                                <h3>Upload & Sign</h3>
+                                <p>Upload your document and type your name to sign. No counterparty needed - leave the counterparty field empty.</p>
+                            </div>
+                        </div>
+                        <div class="how-step">
+                            <div class="how-step-num">2</div>
+                            <div class="how-step-content">
+                                <h3>Sealed Immediately</h3>
+                                <p>Your document's fingerprint and wallet address are recorded on the Kaspa blockchain the moment you sign. Instant, permanent proof that this document existed at this exact time.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- What makes this different -->
                 <div class="how-section">
                     <h2>What makes this different?</h2>
                     <div class="how-grid">
@@ -90,7 +130,7 @@
                         </div>
                         <div class="how-card">
                             <h4>Cannot be altered</h4>
-                            <p>The document's cryptographic hash is sealed on-chain. Change even one pixel of the PDF and the hash won't match - tampering is immediately detectable.</p>
+                            <p>The document's cryptographic hash is sealed on-chain. Change even one pixel and the hash won't match - tampering is immediately detectable.</p>
                         </div>
                         <div class="how-card">
                             <h4>Independently verifiable</h4>
@@ -103,9 +143,103 @@
                     </div>
                 </div>
 
+                <!-- Use cases -->
                 <div class="how-section">
                     <h2>Use cases</h2>
-                    <p>Freelance contracts, rental agreements, intellectual property timestamps, partnership agreements, NDAs, proof of concept filings - anything where you need provable, timestamped agreement.</p>
+                    <div class="how-usecases">
+                        <div class="how-usecase">
+                            <div class="how-usecase-icon">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                            </div>
+                            <div>
+                                <h4>Contracts & Agreements</h4>
+                                <p>Freelance contracts, rental agreements, partnership deals. Both parties sign and get permanent blockchain proof.</p>
+                            </div>
+                        </div>
+                        <div class="how-usecase">
+                            <div class="how-usecase-icon">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+                            </div>
+                            <div>
+                                <h4>Intellectual Property</h4>
+                                <p>Timestamp a patent idea, design concept, or research paper. Prove it existed at a specific date - before anyone else claims it.</p>
+                            </div>
+                        </div>
+                        <div class="how-usecase">
+                            <div class="how-usecase-icon">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+                            </div>
+                            <div>
+                                <h4>NDAs & Confidentiality</h4>
+                                <p>Both parties sign an NDA with private visibility. Only the signers can see the document - the public only sees the proof exists.</p>
+                            </div>
+                        </div>
+                        <div class="how-usecase">
+                            <div class="how-usecase-icon">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                            </div>
+                            <div>
+                                <h4>Certificates & Credentials</h4>
+                                <p>Issue a verifiable certificate. Anyone can check the proof page to confirm it's real and when it was issued.</p>
+                            </div>
+                        </div>
+                        <div class="how-usecase">
+                            <div class="how-usecase-icon">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+                            </div>
+                            <div>
+                                <h4>Creative Works</h4>
+                                <p>Timestamp music, writing, art, or code. Single-signer mode seals it instantly - proof of creation date forever.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hash a File explanation -->
+                <div class="how-section">
+                    <h2>What is "Hash a File"?</h2>
+                    <p>The <strong>Hash a File</strong> tool lets you compute the SHA-256 fingerprint of any PDF - entirely in your browser. Nothing is uploaded to our servers.</p>
+                    <p style="margin-top: 8px;">This is how verification works: every file has a unique fingerprint. When a document is notarized, its fingerprint is permanently sealed on the blockchain. Later, anyone can re-hash their copy of the file and compare. If the fingerprints match, the document is exactly what was originally signed. If they don't match, it's been tampered with.</p>
+                    <p style="margin-top: 8px;">You can also use the <strong>Verify</strong> tool on any proof page - drop a file and it'll instantly tell you if it matches the sealed record.</p>
+                </div>
+
+                <!-- FAQ -->
+                <div class="how-section">
+                    <h2>Frequently asked questions</h2>
+                    <div class="faq-list">
+                        <div class="faq-item">
+                            <h4>Where is my document stored?</h4>
+                            <p>Your document is stored on our secure server. Only the original signers can access it. What goes on the blockchain is the document's fingerprint (SHA-256 hash), not the document itself.</p>
+                        </div>
+                        <div class="faq-item">
+                            <h4>What does "upload to blockDAG" mean?</h4>
+                            <p>This is an optional feature for small documents (under 2 MB). If selected, the actual file is uploaded directly to the Kaspa network - making it permanently available on-chain, independent of our server. If not selected, the file lives on our server and verification works by re-hashing your local copy against the on-chain fingerprint.</p>
+                        </div>
+                        <div class="faq-item">
+                            <h4>What if I lose my copy of the document?</h4>
+                            <p>If your document is stored on our server, you can always download it from your dashboard. If you chose "upload to blockDAG," the document is also permanently on-chain. Either way, the blockchain proof - the fingerprint, wallets, and timestamp - can never be lost.</p>
+                        </div>
+                        <div class="faq-item">
+                            <h4>How do I verify a document is authentic?</h4>
+                            <p>Visit the document's proof page and use the "Verify" drop zone. Drop your copy of the PDF - the tool computes its fingerprint in your browser and compares it to the on-chain record. A match means the document is identical to what was originally signed.</p>
+                        </div>
+                        <div class="faq-item">
+                            <h4>Can anyone see my document?</h4>
+                            <p>Only if you choose to make it public. By default, documents are private - only the original signers can view the PDF. The public archive shows the proof of existence (hash, wallets, timestamp) but not the document content unless you explicitly allow it.</p>
+                        </div>
+                        <div class="faq-item">
+                            <h4>What Kaspa wallet do I need?</h4>
+                            <p>Any Kaspa wallet works - KasWare, Kastle, Keystone, or mobile wallets. You just need to connect it to sign. The counterparty can use a completely different wallet.</p>
+                        </div>
+                        <div class="faq-item">
+                            <h4>How much does it cost?</h4>
+                            <p>The notary fee is a small fixed amount in KAS that covers the blockchain seal transaction. The exact amount is shown before you confirm.</p>
+                        </div>
+                        <div class="faq-item">
+                            <h4>Is this legally binding?</h4>
+                            <p>Kaspa Notary provides cryptographic proof of agreement at a specific point in time. While blockchain-sealed documents are increasingly recognized in legal proceedings, we recommend consulting a legal professional for matters requiring formal legal standing in your jurisdiction.</p>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="how-section how-footer">
@@ -646,7 +780,7 @@
 
                 <!-- Verify tool -->
                 <div class="proof-verify">
-                    <h3>Verify a Document</h3>
+                    <h3>Verify Document</h3>
                     <p>Drop the original file here to check if its hash matches the sealed record.</p>
                     <div class="upload-zone upload-zone-sm" id="verify-upload-zone">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">

@@ -75,7 +75,7 @@ router.post('/auth/connect', async (req, res) => {
 
 /**
  * GET /api/config
- * Public endpoint — returns fee amount and merchant ID
+ * Public endpoint - returns fee amount and merchant ID
  */
 router.get('/config', (req, res) => {
     res.json({
@@ -90,15 +90,15 @@ router.get('/config', (req, res) => {
 
 /**
  * GET /api/archive
- * Public endpoint — returns notarized documents for the public archive.
+ * Public endpoint - returns notarized documents for the public archive.
  * Supports search, category filter, date filter, and pagination.
  *
  * Query params:
- *   q         — search term (matches public title, hash, wallet addresses)
- *   category  — filter by category enum value
- *   period    — 'week', 'month', '3months', 'year', 'all' (default: 'all')
- *   page      — page number (default: 1)
- *   limit     — results per page (default: 20, max: 50)
+ *   q         - search term (matches public title, hash, wallet addresses)
+ *   category  - filter by category enum value
+ *   period    - 'week', 'month', '3months', 'year', 'all' (default: 'all')
+ *   page      - page number (default: 1)
+ *   limit     - results per page (default: 20, max: 50)
  */
 router.get('/archive', async (req, res) => {
     try {
@@ -150,7 +150,7 @@ router.get('/archive', async (req, res) => {
         );
         const total = countRows[0].total;
 
-        // Get documents (LIMIT/OFFSET interpolated directly — values are already parseInt-validated above)
+        // Get documents (LIMIT/OFFSET interpolated directly - values are already parseInt-validated above)
         const [rows] = await db.execute(
             `SELECT doc_uuid, title, title_public, is_public, category, original_hash, file_size,
                     creator_wallet_address, counterparty_wallet_address,
@@ -238,7 +238,7 @@ router.post('/documents', requireAuth, upload.single('pdf'), async (req, res) =>
             return res.status(400).json({ error: 'Title required' });
         }
 
-        // Counterparty email is optional — if absent, single-signer mode
+        // Counterparty email is optional - if absent, single-signer mode
         if (counterparty_email && !counterparty_email.includes('@')) {
             return res.status(400).json({ error: 'Valid email required for counterparty' });
         }
@@ -275,6 +275,7 @@ router.post('/documents', requireAuth, upload.single('pdf'), async (req, res) =>
             success: true,
             doc_uuid: docUuid,
             hash: hash,
+            original_hash: hash,
             file_size: fileSize,
             fee_kas: NOTARY_FEE_KAS,
             single_signer: !counterparty_email
@@ -291,7 +292,7 @@ router.post('/documents', requireAuth, upload.single('pdf'), async (req, res) =>
 
 /**
  * PUT /api/documents/:docUuid
- * Edit a draft document — title, counterparty email, note, category, visibility, or replace PDF.
+ * Edit a draft document - title, counterparty email, note, category, visibility, or replace PDF.
  */
 router.put('/documents/:docUuid', requireAuth, upload.single('pdf'), async (req, res) => {
     try {
@@ -504,7 +505,7 @@ router.post('/documents/:docUuid/payment', requireAuth, async (req, res) => {
                 }
             } catch (verifyErr) {
                 console.error('KasperoPay verification error:', verifyErr.message);
-                // Continue anyway — TX ID is on-chain and verifiable
+                // Continue anyway - TX ID is on-chain and verifiable
             }
         }
 
@@ -530,7 +531,9 @@ router.post('/documents/:docUuid/payment', requireAuth, async (req, res) => {
 /**
  * POST /api/documents/:docUuid/sign
  * Party A or Party B signs the document.
- * Records consent + typed name in DB.
+ * Accepts two signature types:
+ *   - type: 'schnorr' - cryptographic Schnorr sig from wallet extension
+ *   - type: 'typed' - fallback typed name (when wallet doesn't support signMessage)
  *
  * Two-party: When Party B signs, auto-seals on blockchain.
  * Single-signer: When Party A signs, auto-seals immediately (no counterparty needed).
@@ -540,8 +543,20 @@ router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
         const { docUuid } = req.params;
         const { signature, agreed, email } = req.body;
 
-        if (!signature || !signature.type || !signature.value) {
-            return res.status(400).json({ error: 'Signature data required (type and value)' });
+        if (!signature || !signature.type) {
+            return res.status(400).json({ error: 'Signature data required' });
+        }
+        // Validate based on type
+        if (signature.type === 'schnorr') {
+            if (!signature.schnorr_signature) {
+                return res.status(400).json({ error: 'Schnorr signature required' });
+            }
+        } else if (signature.type === 'typed') {
+            if (!signature.value) {
+                return res.status(400).json({ error: 'Typed name required' });
+            }
+        } else {
+            return res.status(400).json({ error: 'Unknown signature type' });
         }
         if (!agreed) {
             return res.status(400).json({ error: 'You must confirm you have read and agree to the document' });
@@ -578,11 +593,23 @@ router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
 
         const sigData = {
             type: signature.type,
-            value: signature.value,
             agreed: true,
             timestamp: new Date().toISOString(),
-            wallet_address: req.walletAddress
+            wallet_address: req.walletAddress,
+            wallet_provider: signature.wallet_provider || null
         };
+
+        if (signature.type === 'schnorr') {
+            sigData.schnorr_signature = signature.schnorr_signature;
+            sigData.public_key = signature.public_key || null;
+            sigData.signed_message = signature.signed_message || null;
+            sigData.sign_timestamp = signature.sign_timestamp || null;
+            sigData.typed_name = signature.typed_name || null;
+        } else {
+            // Typed fallback
+            sigData.value = signature.value;
+            sigData.crypto_unavailable = signature.crypto_unavailable || false;
+        }
 
         if (party === 'A') {
             // ── SINGLE-SIGNER: sign + auto-seal ──
@@ -638,7 +665,7 @@ router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
                         party: 'A',
                         status: 'pending_finalization',
                         single_signer: true,
-                        seal_error: 'Blockchain seal pending — will retry automatically'
+                        seal_error: 'Blockchain seal pending - will retry automatically'
                     });
                 }
             }
@@ -680,7 +707,7 @@ router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
             res.json({ success: true, party: 'A', status: 'pending_cosign', invite_url: inviteUrl });
 
         } else {
-            // ── Party B signs — auto-seal ──
+            // ── Party B signs - auto-seal ──
             const updateFields = [JSON.stringify(sigData), req.walletAddress];
             let emailUpdate = '';
             if (email && email.includes('@') && !doc.counterparty_email) {
@@ -748,7 +775,7 @@ router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
                     success: true,
                     party: 'B',
                     status: 'pending_finalization',
-                    seal_error: 'Blockchain seal pending — will retry automatically'
+                    seal_error: 'Blockchain seal pending - will retry automatically'
                 });
             }
         }
@@ -783,7 +810,7 @@ router.post('/documents/:docUuid/invite', requireAuth, async (req, res) => {
         }
 
         if (!doc.counterparty_email) {
-            return res.status(400).json({ error: 'No counterparty on this document — single-signer mode' });
+            return res.status(400).json({ error: 'No counterparty on this document - single-signer mode' });
         }
 
         if (doc.status !== 'pending_cosign') {
@@ -821,13 +848,13 @@ router.post('/documents/:docUuid/invite', requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// INVITE LOOKUP (public — counterparty lands here)
+// INVITE LOOKUP (public - counterparty lands here)
 // ─────────────────────────────────────────────
 
 /**
  * GET /api/invite/:token
  * Counterparty uses this to load the document for signing.
- * No auth required — the invite token IS the auth for viewing.
+ * No auth required - the invite token IS the auth for viewing.
  */
 router.get('/invite/:token', async (req, res) => {
     try {
@@ -836,7 +863,7 @@ router.get('/invite/:token', async (req, res) => {
         const [rows] = await db.execute(
             `SELECT doc_uuid, title, note, original_hash, file_size, status, category,
                     is_public, title_public,
-                    creator_wallet_address, counterparty_wallet_address, counterparty_email,
+                    creator_wallet_address, creator_email, counterparty_wallet_address, counterparty_email,
                     creator_signature, counterparty_signature,
                     seal_tx_id, seal_payload,
                     payment_tx_id, payment_amount_kas,
@@ -867,6 +894,7 @@ router.get('/invite/:token', async (req, res) => {
                 is_public: !!doc.is_public,
                 title_public: !!doc.title_public,
                 creator_wallet_address: doc.creator_wallet_address,
+                creator_email: doc.creator_email || null,
                 counterparty_email: doc.counterparty_email,
                 counterparty_wallet_address: doc.counterparty_wallet_address,
                 creator_signature: doc.creator_signature || null,
@@ -953,7 +981,8 @@ router.get('/documents/:docUuid', requireAuth, async (req, res) => {
                 is_public: !!doc.is_public,
                 title_public: !!doc.title_public,
                 creator_wallet_address: doc.creator_wallet_address,
-                counterparty_email: doc.counterparty_email,
+                creator_email: doc.creator_email || null,
+                counterparty_email: doc.counterparty_email || null,
                 counterparty_wallet_address: doc.counterparty_wallet_address,
                 creator_signature: doc.creator_signature || null,
                 counterparty_signature: doc.counterparty_signature || null,
@@ -1117,7 +1146,7 @@ router.get('/documents/:docUuid/download', requireAuth, async (req, res) => {
         const fs = require('fs').promises;
         const pdfBuffer = await fs.readFile(doc.original_file_path);
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${doc.title} — Notarized.pdf"`);
+        res.setHeader('Content-Disposition', `attachment; filename="${doc.title} - Notarized.pdf"`);
         res.send(pdfBuffer);
     } catch (err) {
         console.error('Download error:', err);
@@ -1131,7 +1160,7 @@ router.get('/documents/:docUuid/download', requireAuth, async (req, res) => {
 
 /**
  * GET /api/proof/:docUuid
- * Public proof endpoint — returns on-chain verifiable data.
+ * Public proof endpoint - returns on-chain verifiable data.
  * Also returns visibility flags so frontend can conditionally show title/PDF.
  */
 router.get('/proof/:docUuid', async (req, res) => {
@@ -1184,7 +1213,7 @@ router.get('/proof/:docUuid', async (req, res) => {
 
 /**
  * POST /api/hash
- * Public utility — upload a file and get its SHA-256 hash.
+ * Public utility - upload a file and get its SHA-256 hash.
  * No file stored, no record created. Pure utility.
  */
 router.post('/hash', upload.single('pdf'), async (req, res) => {

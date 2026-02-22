@@ -272,6 +272,31 @@ body {
 .archive-card:hover { border-color: var(--slate-light); box-shadow: var(--shadow); }
 .archive-card.public { border-left: 3px solid var(--green); }
 
+/* Navy header bar */
+.archive-card-header {
+    background: var(--navy);
+    padding: 12px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.archive-card-header .archive-card-title {
+    color: white;
+    font-weight: 600;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+}
+.category-pill.category-on-dark {
+    background: rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.8);
+    border-color: rgba(255,255,255,0.2);
+}
+
 /* Thumbnail preview area */
 .archive-card-preview {
     height: 160px;
@@ -316,13 +341,11 @@ body {
 }
 
 /* Card body (text content below preview) */
-.archive-card-body { padding: 14px 18px; }
-.archive-card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; gap: 12px; }
-.archive-card-title { font-weight: 600; font-size: 14px; flex: 1; min-width: 0; }
+.archive-card-body { padding: 12px 18px; }
 .archive-card-badges { display: flex; gap: 6px; flex-shrink: 0; }
 .private-label { color: var(--slate-light); font-style: italic; font-weight: 400; }
-.archive-card-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--slate-light); margin-bottom: 6px; }
-.archive-card-parties { font-size: 11px; color: var(--slate); font-family: 'JetBrains Mono', monospace; display: flex; gap: 16px; margin-bottom: 6px; }
+.archive-card-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--slate-light); margin-bottom: 4px; }
+.archive-card-parties { font-size: 11px; color: var(--slate); font-family: 'JetBrains Mono', monospace; display: flex; gap: 16px; margin-bottom: 4px; }
 .archive-card-tx { font-size: 11px; }
 .archive-card-tx a { color: var(--accent); text-decoration: none; }
 .archive-card-tx a:hover { text-decoration: underline; }
@@ -774,6 +797,9 @@ select:focus {
 .sig-label { font-size: 13px; font-weight: 600; }
 .sig-address { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--slate-light); }
 .sig-time { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+.sig-email { font-size: 12px; color: var(--slate); margin-top: 1px; }
+.sig-crypto { font-size: 11px; color: #059669; margin-top: 2px; font-weight: 500; }
+.sig-crypto-name { color: var(--slate); font-weight: 400; font-style: italic; }
 
 /* ============ SIGN ACTION ============ */
 .sign-action {
@@ -1092,6 +1118,77 @@ select:focus {
 
 .how-footer { padding-top: 20px; border-top: 1px solid var(--border); }
 .how-footer p { font-size: 13px; color: var(--slate-light); }
+
+/* How it Works — section intro */
+.how-section-intro { font-size: 14px; color: var(--text-secondary); line-height: 1.6; }
+
+/* How it Works — flow blocks */
+.how-flow {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    margin-bottom: 16px;
+}
+.how-flow-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 4px;
+    color: var(--navy);
+}
+.how-flow-title svg { color: var(--slate); }
+.how-flow-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+.how-flow .how-steps { margin-bottom: 0; }
+
+/* How it Works — use cases */
+.how-usecases {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.how-usecase {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    padding: 14px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+.how-usecase-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--navy);
+}
+.how-usecase h4 { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+.how-usecase p { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+
+/* FAQ */
+.faq-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+.faq-item {
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+}
+.faq-item:last-child { border-bottom: none; }
+.faq-item h4 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.faq-item p { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
 
 /* ============ PDF FULLSCREEN ============ */
 .btn-pdf-fullscreen {

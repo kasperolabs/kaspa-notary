@@ -5,6 +5,7 @@
         token: localStorage.getItem('notary_token') || null,
         walletAddress: localStorage.getItem('notary_wallet') || null,
         userEmail: localStorage.getItem('notary_email') || null,
+        walletProvider: null,
         currentDoc: null,
         inviteToken: null,
         inviteDoc: null,
@@ -13,6 +14,7 @@
         feeKas: 5,
         merchantId: null,
         pendingDocUuid: null,
+        pendingDocHash: null,
         pendingSig: null,
         pendingInviteUrl: null,
         archivePage: 1
@@ -74,6 +76,24 @@
         });
     }
 
+    function downloadWithAuth(ep, filename) {
+        var h = {};
+        if (state.token) h['Authorization'] = 'Bearer ' + state.token;
+        fetch(API + ep, { headers: h }).then(function(r) {
+            if (!r.ok) throw new Error('Download failed');
+            return r.blob();
+        }).then(function(blob) {
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = filename || 'document.pdf';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }).catch(function(e) { toast('Download failed: ' + e.message, 'error'); });
+    }
+
     // ── PDF Rendering ──
     function renderPdf(url, canvasId) {
         if (!window.pdfjsLib) return Promise.resolve();
@@ -126,7 +146,14 @@
         return new Promise(function(resolve) {
             if (window.KasperoPay && typeof KasperoPay.connect === 'function') {
                 KasperoPay.connect({
-                    onConnect: function(u) { finishAuth(u.address).then(resolve); },
+                    onConnect: function(u) {
+                        // Detect which underlying wallet KasperoPay used
+                        if (window.kasware && window.kasware._isConnected) state.walletProvider = 'kasware';
+                        else if (window.keystone) state.walletProvider = 'keystone';
+                        else if (window.kastle) state.walletProvider = 'kastle';
+                        else state.walletProvider = u.provider || u.wallet || 'unknown';
+                        finishAuth(u.address).then(resolve);
+                    },
                     onCancel: function() { resolve(false); }
                 });
                 return;
@@ -139,10 +166,46 @@
     }
 
     function detectWallet() {
-        if (window.kasware) return window.kasware.requestAccounts().then(function(a) { return a[0]; });
-        if (window.kastle) return window.kastle.connect('mainnet').then(function() { return window.kastle.getAccount(); }).then(function(a) { return a.address; });
-        if (window.keystone) return window.keystone.requestAccounts().then(function(a) { return Array.isArray(a) ? a[0] : a; });
+        if (window.kasware) return window.kasware.requestAccounts().then(function(a) { state.walletProvider = 'kasware'; return a[0]; });
+        if (window.kastle) return window.kastle.connect('mainnet').then(function() { return window.kastle.getAccount(); }).then(function(a) { state.walletProvider = 'kastle'; return a.address; });
+        if (window.keystone) return window.keystone.requestAccounts().then(function(a) { state.walletProvider = 'keystone'; return Array.isArray(a) ? a[0] : a; });
         return Promise.resolve(null);
+    }
+
+    /**
+     * Cryptographic message signing via the connected wallet extension.
+     * Returns { signature: hex, publicKey: hex } or throws.
+     */
+    function walletSignMessage(message) {
+        var p = state.walletProvider;
+        if (p === 'kasware' && window.kasware && window.kasware.signMessage) {
+            return Promise.all([
+                window.kasware.signMessage(message),
+                window.kasware.getPublicKey()
+            ]).then(function(r) { return { signature: r[0], publicKey: r[1] }; });
+        }
+        if (p === 'kastle' && window.kastle) {
+            // Kastle exposes signMessage via message passing (no enumerable methods)
+            return window.kastle.signMessage(message).then(function(sig) {
+                // Kastle doesn't have getPublicKey - we'll derive it server-side or store address only
+                return { signature: sig, publicKey: null };
+            });
+        }
+        if (p === 'keystone' && window.keystone && window.keystone.signMessage) {
+            return window.keystone.signMessage(message).then(function(sig) {
+                return { signature: sig, publicKey: null };
+            });
+        }
+        return Promise.reject(new Error('Connected wallet does not support message signing'));
+    }
+
+    /**
+     * Build the message to sign: KASPA_NOTARY|documentHash|unixTimestamp
+     * This binds the signature to a specific document at a specific time.
+     */
+    function buildSignMessage(docHash) {
+        var ts = Math.floor(Date.now() / 1000);
+        return { message: 'KASPA_NOTARY|' + docHash + '|' + ts, timestamp: ts };
     }
 
     function finishAuth(address) {
@@ -225,33 +288,31 @@
             d.documents.forEach(function(doc) {
                 var el = document.createElement('div');
                 el.className = 'archive-card' + (doc.is_public ? ' public' : '');
-                var title = doc.title ? esc(doc.title) : '<span class="private-label">Private Document</span>';
+                var title = doc.title ? esc(doc.title) : 'Private Document';
                 var hashShort = (doc.original_hash || '').slice(0, 16) + '...';
                 var isSingle = !doc.party_b;
 
+                // Navy header with title + category badge
+                var html = '<div class="archive-card-header">';
+                html += '<div class="archive-card-title">' + title + '</div>';
+                html += '<span class="category-pill category-on-dark">' + categoryLabel(doc.category) + '</span>';
+                html += '</div>';
+
                 // Thumbnail preview area
-                var preview = '';
                 if (doc.is_public) {
-                    preview = '<div class="archive-card-preview" id="preview-' + doc.doc_uuid + '"><canvas class="archive-thumb"></canvas></div>';
+                    html += '<div class="archive-card-preview" id="preview-' + doc.doc_uuid + '"><canvas class="archive-thumb"></canvas></div>';
                 } else {
-                    preview = '<div class="archive-card-preview archive-card-private">' +
+                    html += '<div class="archive-card-preview archive-card-private">' +
                         '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>' +
                         '<span>Private Document</span>' +
                         '</div>';
                 }
 
-                var html = preview;
+                // Compact meta footer
                 html += '<div class="archive-card-body">';
-                html += '<div class="archive-card-top">';
-                html += '<div class="archive-card-title">' + title + '</div>';
-                html += '<div class="archive-card-badges">';
-                html += '<span class="category-pill">' + categoryLabel(doc.category) + '</span>';
-                html += '<span class="status-pill notarized">Sealed</span>';
-                html += '</div>';
-                html += '</div>';
                 html += '<div class="archive-card-meta">';
-                html += '<span class="mono" style="font-size:11px;">' + esc(hashShort) + '</span>';
                 html += '<span>' + formatDate(doc.notarized_at) + '</span>';
+                html += '<span class="mono" style="font-size:11px;">' + esc(hashShort) + '</span>';
                 html += '</div>';
                 html += '<div class="archive-card-parties">';
                 html += '<span>Party A: ' + truncAddr(doc.party_a) + '</span>';
@@ -262,9 +323,9 @@
                 }
                 html += '</div>';
                 if (doc.seal_tx_id) {
-                    html += '<div class="archive-card-tx"><a href="' + EXPLORER + doc.seal_tx_id + '" target="_blank" class="mono">Seal TX: ' + doc.seal_tx_id.slice(0, 16) + '...</a></div>';
+                    html += '<div class="archive-card-tx"><a href="' + EXPLORER + doc.seal_tx_id + '" target="_blank" class="mono" onclick="event.stopPropagation()">TX: ' + doc.seal_tx_id.slice(0, 16) + '...</a></div>';
                 }
-                html += '</div>'; // close archive-card-body
+                html += '</div>';
                 el.innerHTML = html;
                 el.style.cursor = 'pointer';
                 el.onclick = function() { history.pushState(null, '', '/proof/' + doc.doc_uuid); loadProof(doc.doc_uuid); };
@@ -516,6 +577,7 @@
 
         api('/documents', { method: 'POST', body: fd }).then(function(d) {
             state.pendingDocUuid = d.doc_uuid;
+            state.pendingDocHash = d.original_hash || state.uploadedHash;
             state.pendingSig = { name: sigName, agreed: agreed };
 
             // Show payment
@@ -557,14 +619,45 @@
             body: JSON.stringify({ tx_id: txid, payment_id: paymentId, amount_kas: amountKas })
         }).then(function() {
             if (state.pendingSig) {
-                $('loading-text').textContent = 'Signing document...';
-                return api('/documents/' + docUuid + '/sign', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        signature: { type: 'typed', value: state.pendingSig.name },
-                        agreed: true,
-                        skip_invite_email: true
-                    })
+                $('loading-text').textContent = 'Requesting wallet signature...';
+                var docHash = state.pendingDocHash || state.uploadedHash;
+                var sm = buildSignMessage(docHash);
+
+                return walletSignMessage(sm.message).then(function(crypto) {
+                    $('loading-text').textContent = 'Sealing on blockchain...';
+                    return api('/documents/' + docUuid + '/sign', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            signature: {
+                                type: 'schnorr',
+                                typed_name: state.pendingSig.name,
+                                schnorr_signature: crypto.signature,
+                                public_key: crypto.publicKey || null,
+                                signed_message: sm.message,
+                                sign_timestamp: sm.timestamp,
+                                wallet_provider: state.walletProvider || 'unknown'
+                            },
+                            agreed: true,
+                            skip_invite_email: true
+                        })
+                    });
+                }).catch(function(sigErr) {
+                    // Wallet signing failed - fall back to typed-only with warning
+                    console.warn('Wallet signMessage failed, falling back to typed:', sigErr.message);
+                    return api('/documents/' + docUuid + '/sign', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            signature: {
+                                type: 'typed',
+                                value: state.pendingSig.name,
+                                crypto_unavailable: true,
+                                wallet_provider: state.walletProvider || 'unknown',
+                                error: sigErr.message
+                            },
+                            agreed: true,
+                            skip_invite_email: true
+                        })
+                    });
                 });
             }
             return null;
@@ -643,16 +736,16 @@
         $('doc-hash').title = doc.original_hash;
         $('doc-hash').onclick = function() { navigator.clipboard.writeText(doc.original_hash); toast('Hash copied', 'info'); };
         $('doc-file-info').textContent = formatSize(doc.file_size || 0) + ' · PDF';
-        $('btn-download-original').onclick = function(e) { e.preventDefault(); window.open(API + '/documents/' + doc.doc_uuid + '/pdf', '_blank'); };
+        $('btn-download-original').onclick = function(e) { e.preventDefault(); downloadWithAuth('/documents/' + state.currentDoc.doc_uuid + '/pdf', state.currentDoc.title + '.pdf'); };
 
         renderPdf(API + '/documents/' + doc.doc_uuid + '/pdf', 'pdf-canvas');
 
         // Signatures
         if (isSingle) {
-            $('sig-rows').innerHTML = sigRow('Signer', doc.creator_wallet_address, doc.creator_signature, doc.creator_signed_at);
+            $('sig-rows').innerHTML = sigRow('Signer', doc.creator_wallet_address, doc.creator_signature, doc.creator_signed_at, doc.creator_email);
         } else {
             $('sig-rows').innerHTML =
-                sigRow('Creator (Party A)', doc.creator_wallet_address, doc.creator_signature, doc.creator_signed_at) +
+                sigRow('Creator (Party A)', doc.creator_wallet_address, doc.creator_signature, doc.creator_signed_at, doc.creator_email) +
                 sigRow('Counterparty (Party B)', doc.counterparty_wallet_address, doc.counterparty_signature, doc.counterparty_signed_at, doc.counterparty_email);
         }
         show('signatures-section');
@@ -699,8 +792,18 @@
         var ic = ok ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20,6 9,17 4,12"/></svg>'
             : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>';
         var a = ok ? truncAddr((sig && sig.wallet_address) || addr) : (email ? 'Awaiting ' + email : 'Awaiting...');
+        var emailLine = ok && email ? '<div class="sig-email">' + esc(email) + '</div>' : '';
+        // Show cryptographic proof badge if schnorr signature present
+        var sigType = '';
+        if (ok && sig && sig.type === 'schnorr' && sig.schnorr_signature) {
+            sigType = '<div class="sig-crypto">&#x1f512; Schnorr signature</div>';
+        } else if (ok && sig && sig.typed_name) {
+            sigType = '<div class="sig-crypto sig-crypto-name">' + esc(sig.typed_name) + '</div>';
+        } else if (ok && sig && sig.value) {
+            sigType = '<div class="sig-crypto sig-crypto-name">' + esc(sig.value) + '</div>';
+        }
         var t = ok && at ? '<div class="sig-time">Signed ' + formatDate(at) + '</div>' : '';
-        return '<div class="signature-row"><div class="sig-indicator ' + c + '">' + ic + '</div><div class="sig-info"><div class="sig-label">' + esc(label) + '</div><div class="sig-address">' + esc(a) + '</div>' + t + '</div></div>';
+        return '<div class="signature-row"><div class="sig-indicator ' + c + '">' + ic + '</div><div class="sig-info"><div class="sig-label">' + esc(label) + '</div><div class="sig-address">' + esc(a) + '</div>' + emailLine + sigType + t + '</div></div>';
     }
 
     function renderProof(doc) {
@@ -733,12 +836,36 @@
         var n = $('input-sig-name').value.trim();
         var agreed = $('input-agree').checked;
         if (!n || !agreed || !state.currentDoc) return;
-        showLoading('Signing...');
-        api('/documents/' + state.currentDoc.doc_uuid + '/sign', { method: 'POST', body: JSON.stringify({ signature: { type: 'typed', value: n }, agreed: true }) }).then(function(d) {
+        showLoading('Requesting wallet signature...');
+
+        var docHash = state.currentDoc.original_hash;
+        var sm = buildSignMessage(docHash);
+
+        walletSignMessage(sm.message).then(function(crypto) {
+            $('loading-text').textContent = 'Submitting signature...';
+            return api('/documents/' + state.currentDoc.doc_uuid + '/sign', {
+                method: 'POST',
+                body: JSON.stringify({
+                    signature: {
+                        type: 'schnorr',
+                        typed_name: n,
+                        schnorr_signature: crypto.signature,
+                        public_key: crypto.publicKey || null,
+                        signed_message: sm.message,
+                        sign_timestamp: sm.timestamp,
+                        wallet_provider: state.walletProvider || 'unknown'
+                    },
+                    agreed: true
+                })
+            });
+        }).then(function(d) {
             hideLoading();
-            toast('Document signed.', 'success');
+            toast('Document signed with cryptographic proof.', 'success');
             loadDocument(state.currentDoc.doc_uuid);
-        }).catch(function(e) { hideLoading(); toast('Signing failed: ' + e.message, 'error'); });
+        }).catch(function(e) {
+            hideLoading();
+            toast('Signing failed: ' + e.message, 'error');
+        });
     }
 
     function sendInvite() {
@@ -793,7 +920,7 @@
         renderPdf(API + '/invite/' + state.inviteToken + '/pdf', 'invite-pdf-canvas');
 
         $('invite-sig-rows').innerHTML =
-            sigRow('Creator (Party A)', doc.creator_wallet_address, doc.creator_signature, doc.creator_signed_at) +
+            sigRow('Creator (Party A)', doc.creator_wallet_address, doc.creator_signature, doc.creator_signed_at, doc.creator_email) +
             sigRow('Counterparty (Party B)', doc.counterparty_wallet_address, doc.counterparty_signature, doc.counterparty_signed_at, doc.counterparty_email);
 
         // Show which party the connected user is
@@ -864,23 +991,38 @@
         var agreed = $('invite-agree').checked;
         if (!n || !agreed || !state.inviteDoc) return;
         var email = $('invite-email').value.trim();
-        showLoading('Signing and sealing...');
-        api('/documents/' + state.inviteDoc.doc_uuid + '/sign', {
-            method: 'POST',
-            body: JSON.stringify({
-                signature: { type: 'typed', value: n },
-                agreed: true,
-                email: email || undefined
-            })
+        showLoading('Requesting wallet signature...');
+
+        var docHash = state.inviteDoc.original_hash;
+        var sm = buildSignMessage(docHash);
+
+        walletSignMessage(sm.message).then(function(crypto) {
+            $('loading-text').textContent = 'Signing and sealing...';
+            return api('/documents/' + state.inviteDoc.doc_uuid + '/sign', {
+                method: 'POST',
+                body: JSON.stringify({
+                    signature: {
+                        type: 'schnorr',
+                        typed_name: n,
+                        schnorr_signature: crypto.signature,
+                        public_key: crypto.publicKey || null,
+                        signed_message: sm.message,
+                        sign_timestamp: sm.timestamp,
+                        wallet_provider: state.walletProvider || 'unknown'
+                    },
+                    agreed: true,
+                    email: email || undefined
+                })
+            });
         }).then(function(d) {
             hideLoading();
             if (d.status === 'notarized') {
                 toast('Document signed and sealed on blockchain!', 'success');
             } else {
-                toast('Document signed.', 'success');
+                toast('Document signed with cryptographic proof.', 'success');
             }
             loadInvite(state.inviteToken);
-        }).catch(function(e) { hideLoading(); toast(e.message, 'error'); });
+        }).catch(function(e) { hideLoading(); toast('Signing failed: ' + e.message, 'error'); });
     }
 
     // ════════════════════════════════════════════
@@ -1162,7 +1304,7 @@
         $('btn-sign').onclick = signDoc;
         $('btn-send-invite').onclick = sendInvite;
         $('btn-finalize').onclick = finalize;
-        $('btn-download-signed').onclick = function() { if (state.currentDoc) window.open(API + '/documents/' + state.currentDoc.doc_uuid + '/download', '_blank'); };
+        $('btn-download-signed').onclick = function() { if (state.currentDoc) downloadWithAuth('/documents/' + state.currentDoc.doc_uuid + '/download', state.currentDoc.title + ' (Notarized).pdf'); };
 
         // PDF fullscreen
         if ($('btn-pdf-fullscreen')) $('btn-pdf-fullscreen').onclick = function() { openPdfFullscreen('pdf-viewer', state.currentDoc ? state.currentDoc.title : 'Document'); };
