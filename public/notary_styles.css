@@ -530,6 +530,60 @@ select:focus {
 .visibility-option input { margin-top: 2px; }
 .visibility-option .optional { color: var(--slate-light); }
 
+/* Divider between visibility and storage */
+.visibility-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 0;
+}
+
+/* Chain upload option */
+.chain-upload-label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.chain-upload-hint {
+    font-size: 11px;
+    color: var(--slate-light);
+    line-height: 1.4;
+}
+
+/* Chain upload cost estimate panel */
+.chain-upload-estimate {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-left: 24px;
+    margin-top: 2px;
+}
+.chain-estimate-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--slate);
+    padding: 3px 0;
+}
+.chain-est-cost {
+    font-weight: 600;
+    color: var(--text);
+}
+.chain-estimate-note {
+    font-size: 11px;
+    color: var(--slate-light);
+    margin-top: 6px;
+    margin-bottom: 0;
+}
+
+/* Cost estimate total row */
+.cost-row.cost-total {
+    border-top: 1px solid var(--border);
+    margin-top: 6px;
+    padding-top: 8px;
+    font-weight: 600;
+}
+
 /* Cost estimate */
 .cost-estimate {
     background: white;
@@ -1267,6 +1321,152 @@ select:focus {
 .toast.success { background: var(--green); color: white; }
 .toast.error { background: var(--red); color: white; }
 .toast.info { background: var(--navy); color: white; }
+
+/* ============ ON-CHAIN BADGE & RECONSTRUCT ============ */
+
+.chain-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    background: var(--green-bg);
+    color: var(--green);
+    border: 1px solid var(--green-border);
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.proof-chain-section {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 16px 0;
+    padding: 12px 16px;
+    background: var(--green-bg);
+    border: 1px solid var(--green-border);
+    border-radius: var(--radius);
+}
+
+.proof-chain-label {
+    font-size: 13px;
+    color: var(--green);
+}
+
+.proof-reconstruct {
+    margin: 12px 0;
+}
+
+.chain-retrieve {
+    margin-top: 12px;
+}
+
+/* ── Live reconstruction animation ── */
+
+.reconstruct-live {
+    margin-top: 12px;
+    padding: 16px;
+    background: var(--navy);
+    border-radius: var(--radius);
+    color: #e2e8f0;
+    font-size: 13px;
+    overflow: hidden;
+}
+.reconstruct-live.success {
+    background: linear-gradient(135deg, #064e3b, #065f46);
+}
+.reconstruct-live.warning {
+    background: linear-gradient(135deg, #78350f, #92400e);
+}
+.reconstruct-live.error {
+    background: linear-gradient(135deg, #7f1d1d, #991b1b);
+}
+
+.recon-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.recon-title {
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.recon-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-top-color: #6ee7b7;
+    border-radius: 50%;
+    animation: recon-spin 0.8s linear infinite;
+}
+@keyframes recon-spin {
+    to { transform: rotate(360deg); }
+}
+
+.recon-check {
+    color: #6ee7b7;
+    flex-shrink: 0;
+}
+.recon-warn {
+    color: #fbbf24;
+    flex-shrink: 0;
+}
+
+.recon-progress-wrap {
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    margin: 10px 0 8px;
+    overflow: hidden;
+}
+.recon-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #059669, #6ee7b7);
+    border-radius: 2px;
+    transition: width 0.15s ease-out;
+}
+
+.recon-detail {
+    font-size: 12px;
+    color: #94a3b8;
+    min-height: 16px;
+}
+
+.recon-tx {
+    font-size: 10px;
+    color: rgba(148, 163, 184, 0.5);
+    margin-top: 4px;
+    min-height: 14px;
+    transition: opacity 0.15s;
+}
+
+.reconstruct-live .btn {
+    background: rgba(255,255,255,0.15);
+    color: white;
+    border: 1px solid rgba(255,255,255,0.2);
+    font-size: 12px;
+    padding: 6px 16px;
+}
+.reconstruct-live .btn:hover {
+    background: rgba(255,255,255,0.25);
+}
+
+/* On-chain badge in archive cards */
+.archive-card-badges {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.archive-card-badges .chain-badge {
+    background: rgba(5, 150, 105, 0.15);
+    border-color: rgba(5, 150, 105, 0.3);
+    color: #6ee7b7;
+}
 
 /* ============ RESPONSIVE ============ */
 @media (max-width: 640px) {

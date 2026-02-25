@@ -9,9 +9,84 @@ const notaryService = require('../services/notaryService');
 const keystoneService = require('../services/keystoneService');
 const emailService = require('../services/emailService');
 const audit = require('../services/auditService');
+const reconstructService = require('../services/reconstructService');
 
 const APP_URL = process.env.APP_URL || 'https://kaspanotary.com';
 const NOTARY_FEE_KAS = parseFloat(process.env.NOTARY_FEE_KAS) || 5;
+
+// ─────────────────────────────────────────────
+// HELPER: Trigger on-chain file embedding (fire-and-forget)
+// ─────────────────────────────────────────────
+
+/**
+ * If the document has upload_to_chain enabled, request Keystone
+ * to embed the actual file on the blockDAG. Runs asynchronously
+ * after the seal TX has been confirmed - does not block the response.
+ * 
+ * @param {string} docUuid - Document UUID
+ * @param {Object} doc - Document row from DB (must include upload_to_chain, original_file_path, etc.)
+ */
+async function triggerChainEmbed(docUuid, doc) {
+    if (!doc.upload_to_chain) return;
+
+    try {
+        // Atomic dedup: only proceed if chain_status is still 'none'
+        // This prevents double-calls from racing
+        const [result] = await db.execute(
+            `UPDATE notary_documents SET chain_status = 'pending' WHERE doc_uuid = ? AND chain_status = 'none'`,
+            [docUuid]
+        );
+        if (result.affectedRows === 0) {
+            console.log(`[Notary] Chain embed already in progress or completed for ${docUuid}, skipping`);
+            return;
+        }
+
+        // Read the file from disk
+        const fs = require('fs').promises;
+        const fileBuffer = await fs.readFile(doc.original_file_path);
+
+        // Parse signatures for manifest metadata
+        let creatorSig = null;
+        let counterpartySig = null;
+        try { creatorSig = typeof doc.creator_signature === 'string' ? doc.creator_signature : JSON.stringify(doc.creator_signature); } catch (e) {}
+        try { counterpartySig = typeof doc.counterparty_signature === 'string' ? doc.counterparty_signature : JSON.stringify(doc.counterparty_signature); } catch (e) {}
+
+        const embedResult = await keystoneService.requestFileEmbed(fileBuffer, {
+            title: doc.title,
+            fileName: doc.title + '.pdf',
+            fileHash: doc.original_hash,
+            fileSize: doc.file_size,
+            fileType: 'application/pdf',
+            creatorAddress: doc.creator_wallet_address,
+            counterpartyAddress: doc.counterparty_wallet_address || null,
+            creatorSignature: creatorSig,
+            counterpartySignature: counterpartySig,
+            note: doc.note,
+        });
+
+        // Store the job ID so we can poll for status
+        await db.execute(
+            `UPDATE notary_documents SET chain_status = 'embedding', chain_job_id = ? WHERE doc_uuid = ?`,
+            [embedResult.jobId, docUuid]
+        );
+
+        await audit.log(docUuid, doc.creator_wallet_address, 'chain_embed_started', {
+            jobId: embedResult.jobId,
+            estimatedChunks: embedResult.estimatedChunks,
+            estimatedCostKas: embedResult.estimatedCostKas,
+        });
+
+        console.log(`[Notary] Chain embed started for ${docUuid}, job: ${embedResult.jobId}`);
+
+    } catch (err) {
+        console.error(`[Notary] Chain embed trigger failed for ${docUuid}:`, err.message);
+        await db.execute(
+            `UPDATE notary_documents SET chain_status = 'failed' WHERE doc_uuid = ?`,
+            [docUuid]
+        ).catch(() => {});
+        await audit.log(docUuid, doc.creator_wallet_address, 'chain_embed_failed', { error: err.message });
+    }
+}
 
 // Multer: store uploads in memory, max 10MB, PDF only
 const upload = multer({
@@ -154,7 +229,7 @@ router.get('/archive', async (req, res) => {
         const [rows] = await db.execute(
             `SELECT doc_uuid, title, title_public, is_public, category, original_hash, file_size,
                     creator_wallet_address, counterparty_wallet_address,
-                    seal_tx_id, notarized_at
+                    seal_tx_id, chain_status, manifest_tx_id, notarized_at
              FROM notary_documents 
              WHERE ${whereClause}
              ORDER BY notarized_at DESC
@@ -172,6 +247,8 @@ router.get('/archive', async (req, res) => {
             party_a: doc.creator_wallet_address,
             party_b: doc.counterparty_wallet_address,
             seal_tx_id: doc.seal_tx_id,
+            chain_status: doc.chain_status || 'none',
+            manifest_tx_id: doc.manifest_tx_id || null,
             notarized_at: doc.notarized_at
         }));
 
@@ -233,7 +310,7 @@ router.post('/documents', requireAuth, upload.single('pdf'), async (req, res) =>
             return res.status(400).json({ error: 'PDF file required' });
         }
 
-        const { title, counterparty_email, creator_email, note, category, is_public, title_public } = req.body;
+        const { title, counterparty_email, creator_email, note, category, is_public, title_public, upload_to_chain } = req.body;
         if (!title) {
             return res.status(400).json({ error: 'Title required' });
         }
@@ -253,12 +330,13 @@ router.post('/documents', requireAuth, upload.single('pdf'), async (req, res) =>
 
         const docIsPublic = is_public === 'true' || is_public === true ? 1 : 0;
         const docTitlePublic = title_public === 'false' || title_public === false ? 0 : 1;
+        const docUploadToChain = upload_to_chain === 'true' || upload_to_chain === true ? 1 : 0;
 
         await db.execute(
             `INSERT INTO notary_documents 
-             (doc_uuid, creator_wallet_address, creator_email, counterparty_email, title, note, category, original_file_path, original_hash, file_size, is_public, title_public, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
-            [docUuid, req.walletAddress, (creator_email || '').trim() || null, counterparty_email ? counterparty_email.trim() : null, title.trim(), note || null, docCategory, filePath, hash, fileSize, docIsPublic, docTitlePublic]
+             (doc_uuid, creator_wallet_address, creator_email, counterparty_email, title, note, category, original_file_path, original_hash, file_size, is_public, title_public, upload_to_chain, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
+            [docUuid, req.walletAddress, (creator_email || '').trim() || null, counterparty_email ? counterparty_email.trim() : null, title.trim(), note || null, docCategory, filePath, hash, fileSize, docIsPublic, docTitlePublic, docUploadToChain]
         );
 
         // Also update the user's email in the users table
@@ -343,6 +421,10 @@ router.put('/documents/:docUuid', requireAuth, upload.single('pdf'), async (req,
         if (req.body.title_public !== undefined) {
             updates.push('title_public = ?');
             params.push(req.body.title_public === 'false' || req.body.title_public === false ? 0 : 1);
+        }
+        if (req.body.upload_to_chain !== undefined) {
+            updates.push('upload_to_chain = ?');
+            params.push(req.body.upload_to_chain === 'true' || req.body.upload_to_chain === true ? 1 : 0);
         }
 
         // Replace PDF if a new one was uploaded
@@ -656,7 +738,10 @@ router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
                         }).catch(() => {});
                     }
 
-                    return res.json({ success: true, party: 'A', status: 'notarized', seal_tx_id: sealResult.txId, single_signer: true });
+                    // Fire-and-forget: embed file on chain if requested
+                    triggerChainEmbed(docUuid, doc).catch(() => {});
+
+                    return res.json({ success: true, party: 'A', status: 'notarized', seal_tx_id: sealResult.txId, single_signer: true, upload_to_chain: !!doc.upload_to_chain });
 
                 } catch (sealErr) {
                     console.error('Single-signer auto-seal error:', sealErr.message);
@@ -767,7 +852,10 @@ router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
                     emailService.sendNotarizedEmail(partyBEmail, emailData).catch(() => {});
                 }
 
-                res.json({ success: true, party: 'B', status: 'notarized', seal_tx_id: sealResult.txId });
+                // Fire-and-forget: embed file on chain if requested
+                triggerChainEmbed(docUuid, doc).catch(() => {});
+
+                res.json({ success: true, party: 'B', status: 'notarized', seal_tx_id: sealResult.txId, upload_to_chain: !!doc.upload_to_chain });
 
             } catch (sealErr) {
                 console.error('Auto-seal error:', sealErr.message);
@@ -990,6 +1078,11 @@ router.get('/documents/:docUuid', requireAuth, async (req, res) => {
                 seal_payload: doc.seal_payload,
                 payment_tx_id: doc.payment_tx_id,
                 payment_amount_kas: doc.payment_amount_kas,
+                upload_to_chain: !!doc.upload_to_chain,
+                chain_status: doc.chain_status || 'none',
+                manifest_tx_id: doc.manifest_tx_id || null,
+                chunk_count: doc.chunk_count || null,
+                chain_embed_cost_kas: doc.chain_embed_cost_kas ? parseFloat(doc.chain_embed_cost_kas) : null,
                 created_at: doc.created_at,
                 creator_signed_at: doc.creator_signed_at,
                 counterparty_signed_at: doc.counterparty_signed_at,
@@ -1104,11 +1197,15 @@ router.post('/documents/:docUuid/finalize', requireAuth, async (req, res) => {
             emailService.sendNotarizedEmail(doc.counterparty_email, emailData).catch(() => {});
         }
 
+        // Fire-and-forget: embed file on chain if requested
+        triggerChainEmbed(docUuid, doc).catch(() => {});
+
         res.json({
             success: true,
             status: 'notarized',
             seal_tx_id: sealTx.txId,
-            payload: sealTx.payload
+            payload: sealTx.payload,
+            upload_to_chain: !!doc.upload_to_chain
         });
     } catch (err) {
         console.error('Finalize error:', err);
@@ -1170,7 +1267,8 @@ router.get('/proof/:docUuid', async (req, res) => {
         const [rows] = await db.execute(
             `SELECT doc_uuid, title, title_public, is_public, category, status, original_hash,
                     creator_wallet_address, counterparty_wallet_address,
-                    seal_tx_id, seal_payload,
+                    seal_tx_id, seal_payload, manifest_tx_id, chunk_count,
+                    upload_to_chain, chain_status,
                     creator_signed_at, counterparty_signed_at, notarized_at
              FROM notary_documents WHERE doc_uuid = ?`,
             [docUuid]
@@ -1196,6 +1294,10 @@ router.get('/proof/:docUuid', async (req, res) => {
                 party_b: doc.counterparty_wallet_address || null,
                 seal_tx_id: doc.seal_tx_id,
                 seal_payload: doc.seal_payload,
+                manifest_tx_id: doc.manifest_tx_id || null,
+                chunk_count: doc.chunk_count || null,
+                upload_to_chain: !!doc.upload_to_chain,
+                chain_status: doc.chain_status || 'none',
                 party_a_signed: doc.creator_signed_at,
                 party_b_signed: doc.counterparty_signed_at,
                 notarized_at: doc.notarized_at
@@ -1204,6 +1306,195 @@ router.get('/proof/:docUuid', async (req, res) => {
     } catch (err) {
         console.error('Proof error:', err);
         res.status(500).json({ error: 'Failed to load proof' });
+    }
+});
+
+// ─────────────────────────────────────────────
+// CHAIN EMBED STATUS (polling endpoint)
+// ─────────────────────────────────────────────
+
+/**
+ * GET /api/documents/:docUuid/chain-status
+ * Poll the status of on-chain file embedding.
+ * Called by frontend spinner while embedding is in progress.
+ * 
+ * If chain_status is 'embedding' and we have a job ID, we check
+ * Keystone for updated progress. If Keystone reports confirmed,
+ * we update our DB and return the final result.
+ */
+router.get('/documents/:docUuid/chain-status', requireAuth, async (req, res) => {
+    try {
+        const { docUuid } = req.params;
+
+        const [rows] = await db.execute(
+            `SELECT doc_uuid, chain_status, chain_job_id, manifest_tx_id, chunk_tx_ids, chunk_count,
+                    chain_embed_cost_kas, upload_to_chain, creator_wallet_address, counterparty_wallet_address
+             FROM notary_documents WHERE doc_uuid = ?`,
+            [docUuid]
+        );
+
+        if (!rows.length) return res.status(404).json({ error: 'Document not found' });
+        const doc = rows[0];
+
+        // Access control
+        if (doc.creator_wallet_address !== req.walletAddress && doc.counterparty_wallet_address !== req.walletAddress) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        if (!doc.upload_to_chain) {
+            return res.json({ success: true, chain_status: 'none', upload_to_chain: false });
+        }
+
+        // If still in progress and we have a job ID, poll Keystone
+        if ((doc.chain_status === 'embedding' || doc.chain_status === 'pending') && doc.chain_job_id) {
+            try {
+                const status = await keystoneService.checkEmbedStatus(doc.chain_job_id);
+
+                if (status.status === 'confirmed') {
+                    // Embedding complete - update our DB
+                    await db.execute(
+                        `UPDATE notary_documents 
+                         SET chain_status = 'confirmed', manifest_tx_id = ?, chunk_tx_ids = ?, 
+                             chunk_count = ?, chain_embed_cost_kas = ?
+                         WHERE doc_uuid = ?`,
+                        [
+                            status.manifestTxId,
+                            JSON.stringify(status.chunkTxIds),
+                            status.chunkTxIds ? status.chunkTxIds.length : null,
+                            status.actualCostKas,
+                            docUuid
+                        ]
+                    );
+                    await audit.log(docUuid, req.walletAddress, 'chain_embed_confirmed', {
+                        manifestTxId: status.manifestTxId,
+                        chunkCount: status.chunkTxIds ? status.chunkTxIds.length : 0,
+                    });
+
+                    return res.json({
+                        success: true,
+                        chain_status: 'confirmed',
+                        manifest_tx_id: status.manifestTxId,
+                        chunk_count: status.chunkTxIds ? status.chunkTxIds.length : 0,
+                        chunks_completed: status.chunksTotal,
+                        chunks_total: status.chunksTotal,
+                    });
+                }
+
+                if (status.status === 'failed') {
+                    await db.execute(
+                        `UPDATE notary_documents SET chain_status = 'failed' WHERE doc_uuid = ?`,
+                        [docUuid]
+                    );
+                    await audit.log(docUuid, req.walletAddress, 'chain_embed_failed', { error: status.error });
+
+                    return res.json({
+                        success: true,
+                        chain_status: 'failed',
+                        error: status.error || 'Embedding failed on Keystone',
+                    });
+                }
+
+                // Still in progress
+                return res.json({
+                    success: true,
+                    chain_status: status.status || 'embedding',
+                    chunks_completed: status.chunksCompleted || 0,
+                    chunks_total: status.chunksTotal || null,
+                });
+
+            } catch (pollErr) {
+                console.error(`[Notary] Chain status poll error for ${docUuid}:`, pollErr.message);
+                // Return last known state rather than erroring
+                return res.json({
+                    success: true,
+                    chain_status: doc.chain_status,
+                    poll_error: 'Could not reach Keystone - will retry',
+                });
+            }
+        }
+
+        // Already confirmed or failed - return stored data
+        res.json({
+            success: true,
+            chain_status: doc.chain_status,
+            manifest_tx_id: doc.manifest_tx_id || null,
+            chunk_count: doc.chunk_count || null,
+            chain_embed_cost_kas: doc.chain_embed_cost_kas ? parseFloat(doc.chain_embed_cost_kas) : null,
+        });
+
+    } catch (err) {
+        console.error('Chain status error:', err);
+        res.status(500).json({ error: 'Failed to check chain status' });
+    }
+});
+
+
+// ─────────────────────────────────────────────
+// VISIBILITY TOGGLE (retroactive)
+// ─────────────────────────────────────────────
+
+/**
+ * PATCH /api/documents/:docUuid/visibility
+ * Creator can toggle title_public and is_public at any time.
+ * Only the original uploader (creator) can change these.
+ */
+router.patch('/documents/:docUuid/visibility', requireAuth, async (req, res) => {
+    try {
+        const { docUuid } = req.params;
+
+        const [rows] = await db.execute(
+            'SELECT creator_wallet_address, title_public, is_public FROM notary_documents WHERE doc_uuid = ?',
+            [docUuid]
+        );
+
+        if (!rows.length) return res.status(404).json({ error: 'Document not found' });
+        const doc = rows[0];
+
+        if (doc.creator_wallet_address !== req.walletAddress) {
+            return res.status(403).json({ error: 'Only the creator can change visibility' });
+        }
+
+        const updates = [];
+        const params = [];
+
+        if (req.body.title_public !== undefined) {
+            updates.push('title_public = ?');
+            params.push(req.body.title_public === true || req.body.title_public === 'true' ? 1 : 0);
+        }
+        if (req.body.is_public !== undefined) {
+            updates.push('is_public = ?');
+            params.push(req.body.is_public === true || req.body.is_public === 'true' ? 1 : 0);
+        }
+
+        if (!updates.length) {
+            return res.status(400).json({ error: 'No visibility fields to update' });
+        }
+
+        params.push(docUuid);
+        await db.execute(
+            `UPDATE notary_documents SET ${updates.join(', ')} WHERE doc_uuid = ?`,
+            params
+        );
+
+        await audit.log(docUuid, req.walletAddress, 'visibility_changed', {
+            title_public: req.body.title_public,
+            is_public: req.body.is_public,
+        }, req.ip);
+
+        // Return the new state
+        const [updated] = await db.execute(
+            'SELECT title_public, is_public FROM notary_documents WHERE doc_uuid = ?',
+            [docUuid]
+        );
+
+        res.json({
+            success: true,
+            title_public: !!updated[0].title_public,
+            is_public: !!updated[0].is_public,
+        });
+    } catch (err) {
+        console.error('Visibility update error:', err);
+        res.status(500).json({ error: 'Failed to update visibility' });
     }
 });
 
@@ -1276,6 +1567,258 @@ router.get('/documents', requireAuth, async (req, res) => {
     } catch (err) {
         console.error('Dashboard error:', err);
         res.status(500).json({ error: 'Failed to load documents' });
+    }
+});
+
+
+// ─────────────────────────────────────────────
+// CHAIN EMBED WEBHOOK (Keystone → Notary)
+// ─────────────────────────────────────────────
+
+/**
+ * POST /api/webhook/chain-complete
+ * Called by Keystone when a file embedding job finishes (success or failure).
+ * Closes the loop without depending on frontend polling.
+ * 
+ * Auth: X-Notary-Secret header (same shared secret as Keystone API calls)
+ * 
+ * Body: { jobId, status, manifestTxId, chunkTxIds, chunkCount, actualCostKas, error }
+ */
+router.post('/webhook/chain-complete', async (req, res) => {
+    try {
+        // Authenticate with shared secret (same key Notary uses to call Keystone)
+        const secret = req.headers['x-notary-secret'];
+        const expectedSecret = process.env.KEYSTONE_API_KEY;
+        if (!secret || !expectedSecret || secret !== expectedSecret) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        const { jobId, status, manifestTxId, chunkTxIds, chunkCount, actualCostKas, error } = req.body;
+
+        if (!jobId || !status) {
+            return res.status(400).json({ error: 'jobId and status are required' });
+        }
+
+        // Find the document by chain_job_id
+        const [docs] = await db.execute(
+            'SELECT doc_uuid, chain_status, creator_wallet_address FROM notary_documents WHERE chain_job_id = ?',
+            [jobId]
+        );
+
+        if (!docs.length) {
+            console.warn(`[Webhook] No document found for job ${jobId}`);
+            return res.status(404).json({ error: 'No document found for this job ID' });
+        }
+
+        const doc = docs[0];
+
+        // Don't overwrite if already confirmed (idempotent)
+        if (doc.chain_status === 'confirmed') {
+            return res.json({ success: true, message: 'Already confirmed' });
+        }
+
+        if (status === 'confirmed' && manifestTxId) {
+            await db.execute(
+                `UPDATE notary_documents 
+                 SET chain_status = 'confirmed', manifest_tx_id = ?, chunk_tx_ids = ?, 
+                     chunk_count = ?, chain_embed_cost_kas = ?
+                 WHERE chain_job_id = ?`,
+                [
+                    manifestTxId,
+                    chunkTxIds ? JSON.stringify(chunkTxIds) : null,
+                    chunkCount || (chunkTxIds ? chunkTxIds.length : null),
+                    actualCostKas || null,
+                    jobId
+                ]
+            );
+
+            await audit.log(doc.doc_uuid, 'system', 'chain_embed_confirmed', {
+                manifestTxId,
+                chunkCount: chunkCount || (chunkTxIds ? chunkTxIds.length : 0),
+                source: 'webhook',
+            });
+
+            console.log(`[Webhook] Chain embed confirmed for ${doc.doc_uuid} - manifest: ${manifestTxId}`);
+
+        } else if (status === 'failed') {
+            await db.execute(
+                'UPDATE notary_documents SET chain_status = ? WHERE chain_job_id = ?',
+                ['failed', jobId]
+            );
+
+            await audit.log(doc.doc_uuid, 'system', 'chain_embed_failed', {
+                error: error || 'Unknown error',
+                source: 'webhook',
+            });
+
+            console.log(`[Webhook] Chain embed failed for ${doc.doc_uuid}: ${error}`);
+        }
+
+        res.json({ success: true, docUuid: doc.doc_uuid, chain_status: status });
+
+    } catch (err) {
+        console.error('[Webhook] chain-complete error:', err);
+        res.status(500).json({ error: 'Webhook processing failed' });
+    }
+});
+
+
+// ─────────────────────────────────────────────
+// RECONSTRUCT FROM BLOCKCHAIN
+// ─────────────────────────────────────────────
+
+/**
+ * Shared access-control check for reconstruct endpoints.
+ * If the manifest belongs to a private doc in our DB, requires wallet auth.
+ * Returns true if access is allowed, sends error response and returns false if not.
+ */
+async function checkReconstructAccess(manifestTxId, req, res) {
+    const [docs] = await db.execute(
+        `SELECT doc_uuid, is_public, creator_wallet_address, counterparty_wallet_address
+         FROM notary_documents WHERE manifest_tx_id = ?`,
+        [manifestTxId]
+    );
+
+    if (docs.length) {
+        const doc = docs[0];
+        if (!doc.is_public) {
+            const wallet = req.walletAddress;
+            if (!wallet) {
+                res.status(401).json({ error: 'Connect your wallet to access this private document' });
+                return false;
+            }
+            if (wallet !== doc.creator_wallet_address && wallet !== doc.counterparty_wallet_address) {
+                res.status(403).json({ error: 'Only the original signers can access this document' });
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+/**
+ * GET /api/reconstruct/:manifestTxId/stream
+ * Server-Sent Events endpoint - streams real-time reconstruction progress.
+ * 
+ * Note: EventSource doesn't support custom headers, so auth token
+ * is accepted as a ?token= query parameter for this endpoint only.
+ */
+router.get('/reconstruct/:manifestTxId/stream', async (req, res) => {
+    try {
+        const { manifestTxId } = req.params;
+        if (!/^[a-f0-9]{64}$/i.test(manifestTxId)) {
+            return res.status(400).json({ error: 'Invalid transaction ID format' });
+        }
+
+        // Manual auth from query param (EventSource can't send headers)
+        req.walletAddress = null;
+        const tokenParam = req.query.token;
+        if (tokenParam) {
+            try {
+                const { verifyToken } = require('../middleware/auth');
+                const decoded = verifyToken(tokenParam);
+                req.walletAddress = decoded.wallet;
+            } catch (e) { /* invalid token - proceed as anonymous */ }
+        }
+
+        const allowed = await checkReconstructAccess(manifestTxId, req, res);
+        if (!allowed) return;
+
+        // Hand off to SSE streamer (it manages the response lifecycle)
+        await reconstructService.streamReconstruction(manifestTxId, res);
+
+    } catch (err) {
+        console.error('Reconstruct stream error:', err.message);
+        // If headers haven't been sent yet, send JSON error
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to start reconstruction stream' });
+        }
+    }
+});
+
+
+/**
+ * GET /api/reconstruct/:manifestTxId
+ * Direct reconstruction - returns the reassembled file.
+ * Used as a fallback if SSE isn't available, or for programmatic access.
+ */
+router.get('/reconstruct/:manifestTxId', optionalAuth, async (req, res) => {
+    try {
+        const { manifestTxId } = req.params;
+        if (!/^[a-f0-9]{64}$/i.test(manifestTxId)) {
+            return res.status(400).json({ error: 'Invalid transaction ID format' });
+        }
+
+        const allowed = await checkReconstructAccess(manifestTxId, req, res);
+        if (!allowed) return;
+
+        const result = await reconstructService.reconstructDocument(manifestTxId);
+
+        const fileName = result.manifest.fileName || 'document.pdf';
+        const fileType = result.manifest.fileType || 'application/pdf';
+
+        res.set({
+            'Content-Type': fileType,
+            'Content-Disposition': `inline; filename="${fileName}"`,
+            'Content-Length': result.file.length,
+            'X-KaspaNotary-Verified': result.verified ? 'true' : 'false',
+            'X-KaspaNotary-Hash': result.fileHash,
+            'X-KaspaNotary-Chunks': result.totalChunks,
+        });
+
+        res.send(result.file);
+
+    } catch (err) {
+        console.error('Reconstruct error:', err.message);
+        if (err.message.includes('not a kaspanotary') || err.message.includes('no payload')) {
+            return res.status(400).json({ error: 'Not a valid kaspanotary manifest', detail: err.message });
+        }
+        if (err.message.includes('Kaspa API error')) {
+            return res.status(502).json({ error: 'Could not reach the Kaspa network', detail: err.message });
+        }
+        res.status(500).json({ error: 'Failed to reconstruct document', detail: err.message });
+    }
+});
+
+
+/**
+ * GET /api/reconstruct/:manifestTxId/info
+ * Returns manifest metadata without downloading the full file. Public, no auth.
+ */
+router.get('/reconstruct/:manifestTxId/info', async (req, res) => {
+    try {
+        const { manifestTxId } = req.params;
+        if (!/^[a-f0-9]{64}$/i.test(manifestTxId)) {
+            return res.status(400).json({ error: 'Invalid transaction ID format' });
+        }
+
+        const manifest = await reconstructService.fetchManifest(manifestTxId);
+
+        res.json({
+            success: true,
+            manifest: {
+                protocol: manifest.protocol,
+                version: manifest.version,
+                title: manifest.title,
+                fileName: manifest.fileName,
+                fileSize: manifest.fileSize,
+                fileType: manifest.fileType,
+                fileHash: manifest.fileHash,
+                chunkCount: manifest.chunkCount,
+                chunkTxIds: manifest.chunkTxIds,
+                creatorAddress: manifest.creatorAddress,
+                counterpartyAddress: manifest.counterpartyAddress,
+                timestamp: manifest.timestamp,
+                note: manifest.note || null,
+            }
+        });
+
+    } catch (err) {
+        console.error('Manifest info error:', err.message);
+        if (err.message.includes('not a kaspanotary') || err.message.includes('no payload')) {
+            return res.status(400).json({ error: 'Not a valid kaspanotary manifest', detail: err.message });
+        }
+        res.status(500).json({ error: 'Failed to fetch manifest', detail: err.message });
     }
 });
 

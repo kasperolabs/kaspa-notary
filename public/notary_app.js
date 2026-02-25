@@ -147,11 +147,13 @@
             if (window.KasperoPay && typeof KasperoPay.connect === 'function') {
                 KasperoPay.connect({
                     onConnect: function(u) {
-                        // Detect which underlying wallet KasperoPay used
-                        if (window.kasware && window.kasware._isConnected) state.walletProvider = 'kasware';
-                        else if (window.keystone) state.walletProvider = 'keystone';
-                        else if (window.kastle) state.walletProvider = 'kastle';
-                        else state.walletProvider = u.provider || u.wallet || 'unknown';
+                        // KasperoPay tells us which wallet was used
+                        var wt = u.walletType || '';
+                        if (wt === 'keystone-ext' || wt === 'keystone') state.walletProvider = 'keystone';
+                        else if (wt === 'kasware') state.walletProvider = 'kasware';
+                        else if (wt === 'kastle') state.walletProvider = 'kastle';
+                        else state.walletProvider = wt || 'unknown';
+                        console.log('Wallet provider:', state.walletProvider, '(from KasperoPay walletType:', wt + ')');
                         finishAuth(u.address).then(resolve);
                     },
                     onCancel: function() { resolve(false); }
@@ -292,10 +294,15 @@
                 var hashShort = (doc.original_hash || '').slice(0, 16) + '...';
                 var isSingle = !doc.party_b;
 
-                // Navy header with title + category badge
+                // Navy header with title + category badge + chain badge
                 var html = '<div class="archive-card-header">';
                 html += '<div class="archive-card-title">' + title + '</div>';
+                html += '<div class="archive-card-badges">';
                 html += '<span class="category-pill category-on-dark">' + categoryLabel(doc.category) + '</span>';
+                if (doc.chain_status === 'confirmed') {
+                    html += '<span class="chain-badge">&#x26D3; On-Chain</span>';
+                }
+                html += '</div>';
                 html += '</div>';
 
                 // Thumbnail preview area
@@ -470,6 +477,7 @@
         $('input-email').value = '';
         $('input-title-public').checked = true;
         $('input-is-public').checked = false;
+        $('input-upload-chain').checked = false;
         $('create-sig-name').value = '';
         $('create-agree').checked = false;
         $('toggle-counterparty').checked = false;
@@ -478,6 +486,11 @@
         hide('file-preview');
         show('upload-zone');
         $('file-input').value = '';
+
+        // Reset chain estimate
+        hide('chain-upload-estimate');
+        hide('cost-chain-row');
+        hide('cost-total-row');
 
         // Reset UI
         hide('party-b-section');
@@ -550,7 +563,48 @@
             hide('upload-zone');
             show('file-preview');
             checkStep1();
+            updateChainEstimate();
         });
+    }
+
+    function updateChainEstimate() {
+        var el = $('chain-upload-estimate');
+        var checked = $('input-upload-chain').checked;
+        var file = state.uploadedFile;
+
+        if (!checked || !file) {
+            hide(el);
+            hide('cost-chain-row');
+            hide('cost-total-row');
+            $('cost-note').textContent = 'Covers the blockchain seal transaction.';
+            $('cost-fee').textContent = state.feeKas + ' KAS';
+            return;
+        }
+
+        // Estimate: ~22KB per chunk minus ~50 byte header
+        var dataPerChunk = 22 * 1024 - 50;
+        var chunkCount = Math.ceil(file.size / dataPerChunk);
+        var totalTxs = chunkCount + 1; // chunks + manifest
+        var feePerTx = 0.0003;
+        var embedCost = +(totalTxs * feePerTx).toFixed(4);
+        var estTimeSec = Math.ceil(totalTxs * 0.6); // ~600ms per chunk
+
+        // Step 1 estimate panel
+        $('chain-est-chunks').textContent = chunkCount;
+        $('chain-est-txs').textContent = totalTxs;
+        $('chain-est-cost').textContent = embedCost + ' KAS';
+        $('chain-est-time').textContent = estTimeSec;
+        show(el);
+
+        // Step 3 cost breakdown
+        var notaryFee = state.feeKas;
+        var total = +(notaryFee + embedCost).toFixed(4);
+        $('cost-chain-txs').textContent = totalTxs;
+        $('cost-chain').textContent = embedCost + ' KAS';
+        $('cost-total').textContent = total + ' KAS';
+        show('cost-chain-row');
+        show('cost-total-row');
+        $('cost-note').textContent = 'Notary seal + on-chain document embedding.';
     }
 
     function submitCreate() {
@@ -570,6 +624,7 @@
         fd.append('note', $('input-note').value.trim());
         fd.append('is_public', $('input-is-public').checked ? 'true' : 'false');
         fd.append('title_public', $('input-title-public').checked ? 'true' : 'false');
+        fd.append('upload_to_chain', $('input-upload-chain').checked ? 'true' : 'false');
 
         if (hasCounterparty) {
             fd.append('counterparty_email', $('input-email').value.trim());
@@ -643,7 +698,8 @@
                     });
                 }).catch(function(sigErr) {
                     // Wallet signing failed - fall back to typed-only with warning
-                    console.warn('Wallet signMessage failed, falling back to typed:', sigErr.message);
+                    console.error('Wallet signMessage failed:', sigErr);
+                    toast('Wallet crypto-sign unavailable (' + sigErr.message + '). Using typed signature.', 'warning');
                     return api('/documents/' + docUuid + '/sign', {
                         method: 'POST',
                         body: JSON.stringify({
@@ -730,6 +786,7 @@
         if (partyText) metaParts.push(partyText);
         if (isSingle) metaParts.push('Single signature');
         metaParts.push('Created ' + formatDate(doc.created_at));
+        if (doc.chain_status === 'confirmed') metaParts.push('⛓ On-Chain');
         $('doc-meta').textContent = metaParts.join(' · ');
 
         $('doc-hash').textContent = 'SHA-256: ' + (doc.original_hash || '').slice(0, 16) + '...';
@@ -817,11 +874,25 @@
         }
         r.innerHTML =
             row('Seal Transaction', doc.seal_tx_id, true) +
+            (doc.manifest_tx_id ? row('File Manifest TX', doc.manifest_tx_id, true) : '') +
             row('Document Hash', doc.original_hash, false, true) +
             row('Party A', doc.creator_wallet_address ? truncAddr(doc.creator_wallet_address) : null) +
             (doc.counterparty_wallet_address ? row('Party B', truncAddr(doc.counterparty_wallet_address)) : '') +
             row('Sealed', formatDate(doc.notarized_at));
         if ($('seal-date')) $('seal-date').textContent = formatDateShort(doc.notarized_at);
+
+        // On-chain retrieve button
+        if (doc.chain_status === 'confirmed' && doc.manifest_tx_id) {
+            var btnHtml = '<div class="chain-retrieve" style="margin-top:12px;">' +
+                '<button class="btn btn-secondary btn-sm" id="btn-doc-reconstruct">&#x26D3; View from Blockchain</button>' +
+                '<span class="reconstruct-status" id="doc-reconstruct-status"></span>' +
+                '</div>';
+            r.insertAdjacentHTML('beforeend', btnHtml);
+            setTimeout(function() {
+                var btn = $('btn-doc-reconstruct');
+                if (btn) btn.onclick = function(e) { e.preventDefault(); reconstructFromChain(doc.manifest_tx_id, 'doc-reconstruct-status'); };
+            }, 0);
+        }
     }
 
     // ════════════════════════════════════════════
@@ -1112,6 +1183,29 @@
 
         // Verify tool
         initVerifyTool(proof.document_hash);
+
+        // On-chain badge + manifest TX + reconstruct button
+        if (proof.chain_status === 'confirmed' && proof.manifest_tx_id) {
+            show('proof-chain-section');
+            show('proof-manifest-row');
+            $('proof-manifest-tx').innerHTML = '<a href="' + EXPLORER + proof.manifest_tx_id + '" target="_blank" class="mono">' + proof.manifest_tx_id + '</a>';
+
+            // Show reconstruct button if public OR if signer
+            if (proof.is_public || isSigner) {
+                show('proof-reconstruct');
+                var btnRecon = $('btn-proof-reconstruct');
+                btnRecon.onclick = function(e) {
+                    e.preventDefault();
+                    reconstructFromChain(proof.manifest_tx_id, 'proof-reconstruct-status');
+                };
+            } else {
+                hide('proof-reconstruct');
+            }
+        } else {
+            hide('proof-chain-section');
+            hide('proof-manifest-row');
+            hide('proof-reconstruct');
+        }
     }
 
     function initVerifyTool(expectedHash) {
@@ -1143,6 +1237,115 @@
                     '<div><strong>No match.</strong> This file does not match the sealed document. Hash: <span class="mono" style="font-size:11px;word-break:break-all;">' + h + '</span></div>';
             }
         });
+    }
+
+    // ── Reconstruct from Blockchain (animated SSE) ──
+
+    /**
+     * Stream-reconstruct a document from the Kaspa blockchain with live progress.
+     * Connects to the SSE endpoint and shows real-time chunk retrieval.
+     */
+    function reconstructFromChain(manifestTxId, statusElId) {
+        var container = $(statusElId);
+        if (!container) return;
+
+        // Build the animation UI inline
+        container.className = 'reconstruct-live';
+        container.innerHTML =
+            '<div class="recon-header">' +
+                '<div class="recon-spinner"></div>' +
+                '<span class="recon-title">Connecting to Kaspa network...</span>' +
+            '</div>' +
+            '<div class="recon-progress-wrap hidden" id="recon-bar-wrap">' +
+                '<div class="recon-progress-bar" id="recon-bar" style="width:0%"></div>' +
+            '</div>' +
+            '<div class="recon-detail" id="recon-detail"></div>' +
+            '<div class="recon-tx hidden" id="recon-tx"></div>';
+
+        var url = API + '/reconstruct/' + manifestTxId + '/stream';
+        if (state.token) url += '?token=' + encodeURIComponent(state.token);
+
+        var source = new EventSource(url);
+        var detail = document.getElementById('recon-detail');
+        var txLine = document.getElementById('recon-tx');
+        var bar = document.getElementById('recon-bar');
+        var barWrap = document.getElementById('recon-bar-wrap');
+        var titleEl = container.querySelector('.recon-title');
+
+        source.addEventListener('manifest', function(e) {
+            var d = JSON.parse(e.data);
+            titleEl.textContent = 'Retrieving "' + d.title + '" from blockDAG';
+            detail.textContent = d.chunkCount + ' chunk' + (d.chunkCount > 1 ? 's' : '') + ' · ' + formatSize(d.fileSize);
+            barWrap.classList.remove('hidden');
+            txLine.classList.remove('hidden');
+        });
+
+        source.addEventListener('chunk', function(e) {
+            var d = JSON.parse(e.data);
+            bar.style.width = d.percent + '%';
+            detail.textContent = 'Retrieving chunk ' + d.index + '/' + d.total + ' (' + d.percent + '%)';
+            txLine.innerHTML = '<span class="mono">' + d.txId.slice(0, 12) + '...' + d.txId.slice(-8) + '</span>';
+        });
+
+        source.addEventListener('verifying', function(e) {
+            bar.style.width = '100%';
+            detail.textContent = 'Verifying SHA-256 hash...';
+            txLine.textContent = '';
+            titleEl.textContent = 'Verifying document integrity';
+        });
+
+        source.addEventListener('complete', function(e) {
+            source.close();
+            var d = JSON.parse(e.data);
+
+            // Build the file blob and open it
+            var byteChars = atob(d.fileBase64);
+            var bytes = new Uint8Array(byteChars.length);
+            for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+            var blob = new Blob([bytes], { type: d.fileType });
+            var blobUrl = URL.createObjectURL(blob);
+
+            // Show success state
+            var icon = d.verified
+                ? '<svg class="recon-check" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20,6 9,17 4,12"/></svg>'
+                : '<svg class="recon-warn" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+
+            container.className = 'reconstruct-live ' + (d.verified ? 'success' : 'warning');
+            container.innerHTML =
+                '<div class="recon-header">' + icon +
+                    '<span class="recon-title">' + (d.verified ? 'Document retrieved &amp; verified' : 'Retrieved - hash mismatch') + '</span>' +
+                '</div>' +
+                '<div class="recon-detail">' +
+                    d.totalChunks + ' chunk' + (d.totalChunks > 1 ? 's' : '') + ' from the Kaspa blockDAG · SHA-256 ' + (d.verified ? '✓' : '✗') +
+                '</div>' +
+                '<div class="recon-detail mono" style="font-size:10px;margin-top:2px;opacity:0.7">' + d.fileHash + '</div>' +
+                '<a href="' + blobUrl + '" target="_blank" class="btn btn-sm" style="margin-top:10px;">Open Reconstructed PDF</a>';
+        });
+
+        source.addEventListener('error', function(e) {
+            var msg = 'Connection lost';
+            try { msg = JSON.parse(e.data).message; } catch (x) {}
+            source.close();
+
+            container.className = 'reconstruct-live error';
+            container.innerHTML =
+                '<div class="recon-header">' +
+                    '<span class="recon-title">Reconstruction failed</span>' +
+                '</div>' +
+                '<div class="recon-detail">' + esc(msg) + '</div>';
+        });
+
+        source.onerror = function() {
+            // SSE connection error (distinct from server-sent error event)
+            if (source.readyState === EventSource.CLOSED) return; // already handled
+            source.close();
+            container.className = 'reconstruct-live error';
+            container.innerHTML =
+                '<div class="recon-header">' +
+                    '<span class="recon-title">Connection to server lost</span>' +
+                '</div>' +
+                '<div class="recon-detail">Could not maintain the SSE connection. Try again.</div>';
+        };
     }
 
     // ── PDF Fullscreen ──
@@ -1236,7 +1439,9 @@
         uz.ondragover = function(e) { e.preventDefault(); uz.classList.add('drag-over'); };
         uz.ondragleave = function() { uz.classList.remove('drag-over'); };
         uz.ondrop = function(e) { e.preventDefault(); uz.classList.remove('drag-over'); if (e.dataTransfer.files[0]) pickFile(e.dataTransfer.files[0]); };
-        $('btn-file-remove').onclick = function() { state.uploadedFile = null; state.uploadedHash = null; $('file-input').value = ''; show('upload-zone'); hide('file-preview'); checkStep1(); };
+        $('btn-file-remove').onclick = function() { state.uploadedFile = null; state.uploadedHash = null; $('file-input').value = ''; show('upload-zone'); hide('file-preview'); checkStep1(); updateChainEstimate(); };
+
+        $('input-upload-chain').onchange = function() { updateChainEstimate(); };
 
         $('btn-wiz-next-1').onclick = function() {
             if (!$('input-title').value.trim() || !state.uploadedFile) return;
@@ -1264,8 +1469,12 @@
             } else {
                 summary += '<div class="sign-summary-item">Single-signature document</div>';
             }
+            if ($('input-upload-chain').checked) {
+                summary += '<div class="sign-summary-item" style="color: var(--accent);">&#x26D3; Document will be embedded on the blockDAG</div>';
+            }
             $('sign-summary').innerHTML = summary;
 
+            updateChainEstimate();
             showWizardStep(3);
         };
 

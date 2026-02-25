@@ -428,7 +428,7 @@
                 </div>
 
                 <div class="form-group">
-                    <label>Visibility</label>
+                    <label>Visibility & Storage</label>
                     <div class="visibility-options">
                         <label class="visibility-option">
                             <input type="checkbox" id="input-title-public" checked>
@@ -438,6 +438,29 @@
                             <input type="checkbox" id="input-is-public">
                             <span>Allow anyone to view the PDF</span>
                         </label>
+                        <div class="visibility-divider"></div>
+                        <label class="visibility-option chain-upload-option">
+                            <input type="checkbox" id="input-upload-chain">
+                            <div class="chain-upload-label">
+                                <span>Upload document to the blockDAG</span>
+                                <span class="chain-upload-hint">The actual file is stored permanently on the Kaspa network - not just the fingerprint. Increases cost based on file size.</span>
+                            </div>
+                        </label>
+                        <div class="chain-upload-estimate hidden" id="chain-upload-estimate">
+                            <div class="chain-estimate-row">
+                                <span>Chunks</span>
+                                <span id="chain-est-chunks">-</span>
+                            </div>
+                            <div class="chain-estimate-row">
+                                <span>Transactions</span>
+                                <span id="chain-est-txs">-</span>
+                            </div>
+                            <div class="chain-estimate-row">
+                                <span>Estimated embedding cost</span>
+                                <span class="chain-est-cost" id="chain-est-cost">- KAS</span>
+                            </div>
+                            <p class="chain-estimate-note">Embedding runs after the seal and takes ~<span id="chain-est-time">-</span> seconds.</p>
+                        </div>
                     </div>
                 </div>
 
@@ -519,7 +542,15 @@
                         <span>Notary fee</span>
                         <span class="cost-value" id="cost-fee">- KAS</span>
                     </div>
-                    <p class="cost-note">Covers the blockchain seal transaction.</p>
+                    <div class="cost-row hidden" id="cost-chain-row">
+                        <span>BlockDAG embedding (<span id="cost-chain-txs">0</span> txs)</span>
+                        <span class="cost-value" id="cost-chain">- KAS</span>
+                    </div>
+                    <div class="cost-row cost-total hidden" id="cost-total-row">
+                        <span>Total</span>
+                        <span class="cost-value" id="cost-total">- KAS</span>
+                    </div>
+                    <p class="cost-note" id="cost-note">Covers the blockchain seal transaction.</p>
                 </div>
 
                 <button class="btn btn-primary btn-full" id="btn-create-submit" disabled>Upload, Sign & Pay</button>
@@ -748,6 +779,10 @@
                         <span class="proof-label">Seal Transaction</span>
                         <span class="proof-value" id="proof-tx"></span>
                     </div>
+                    <div class="proof-detail-row hidden" id="proof-manifest-row">
+                        <span class="proof-label">File Manifest TX</span>
+                        <span class="proof-value" id="proof-manifest-tx"></span>
+                    </div>
                     <div class="proof-detail-row" id="proof-party-a-signed-row">
                         <span class="proof-label">Party A Signed</span>
                         <span class="proof-value" id="proof-party-a-signed"></span>
@@ -756,6 +791,20 @@
                         <span class="proof-label">Party B Signed</span>
                         <span class="proof-value" id="proof-party-b-signed"></span>
                     </div>
+                </div>
+
+                <!-- On-chain badge (shown when document file is embedded on blockDAG) -->
+                <div class="proof-chain-section hidden" id="proof-chain-section">
+                    <span class="chain-badge">&#x26D3; On-Chain</span>
+                    <span class="proof-chain-label">Full document stored on the Kaspa blockDAG</span>
+                </div>
+
+                <!-- Retrieve from blockchain (shown for on-chain public docs, or for signers) -->
+                <div class="proof-reconstruct hidden" id="proof-reconstruct">
+                    <button class="btn btn-secondary btn-sm" id="btn-proof-reconstruct" onclick="return false;">
+                        &#x26D3; Retrieve from Blockchain
+                    </button>
+                    <span class="reconstruct-status" id="proof-reconstruct-status"></span>
                 </div>
 
                 <!-- Public PDF viewer (if document is public) -->

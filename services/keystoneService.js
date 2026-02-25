@@ -1,14 +1,15 @@
 /**
- * Keystone Transaction Service — Single TX, Structured Payload
+ * Keystone Transaction Service - Seal TX + On-Chain File Embedding
  * 
- * Two-party payload:   NOTARY:1|partyA_wallet|partyB_wallet|sha256_of_pdf
- * Single-signer payload: NOTARY:1|partyA_wallet|SELF|sha256_of_pdf
+ * Seal payload (hash anchor):
+ *   Two-party:       NOTARY:1|partyA_wallet|partyB_wallet|sha256_of_pdf
+ *   Single-signer:   NOTARY:1|partyA_wallet|SELF|sha256_of_pdf
  * 
- * Anyone reading the TX can split on '|' and see:
- *   [0] NOTARY:1       — protocol header (notary seal, version 1)
- *   [1] kaspa:qr...    — Party A wallet address
- *   [2] kaspa:qr... or SELF — Party B wallet address (SELF = single signer)
- *   [3] a1b2c3d4...    — SHA-256 hash of the original PDF
+ * File embedding:
+ *   Delegates to Keystone's notaryChain service which chunks the file
+ *   into ~22KB transactions, submits each sequentially, then submits
+ *   a manifest transaction containing all chunk TXIDs.
+ *   Keystone handles wallet management, UTXO sync, and retry logic.
  */
 
 const KEYSTONE_API_URL = process.env.KEYSTONE_API_URL;
@@ -26,8 +27,6 @@ function buildPayload(partyAWallet, partyBWallet, pdfHash) {
 
 /**
  * Extract a transaction ID from a mempool duplicate error message.
- * Kaspa returns: "Rejected transaction <txid>: transaction <txid> is already in the mempool"
- * This means the TX actually succeeded — it's already been accepted.
  */
 function extractMempoolTxId(errorMsg) {
     if (!errorMsg || !errorMsg.includes('already in the mempool')) return null;
@@ -37,19 +36,11 @@ function extractMempoolTxId(errorMsg) {
 
 /**
  * Send the seal transaction with structured payload.
- * This is the ONLY blockchain transaction in the notary flow.
- * 
- * Handles the "already in mempool" edge case where the Keystone API
- * returns an error even though the TX was actually accepted.
- * 
- * @param {string} partyAWallet - Creator's Kaspa address
- * @param {string|null} partyBWallet - Counterparty's Kaspa address, or null for single-signer
- * @param {string} pdfHash - SHA-256 hex string (64 chars) of the original PDF
- * @returns {Promise<{ txId: string, payload: string }>}
+ * This is the primary blockchain transaction in the notary flow.
  */
 async function sendSealTx(partyAWallet, partyBWallet, pdfHash) {
     if (!KEYSTONE_API_URL || !KEYSTONE_API_KEY) {
-        throw new Error('Keystone API not configured — set KEYSTONE_API_URL and KEYSTONE_API_KEY in .env');
+        throw new Error('Keystone API not configured - set KEYSTONE_API_URL and KEYSTONE_API_KEY in .env');
     }
 
     const payload = buildPayload(partyAWallet, partyBWallet, pdfHash);
@@ -69,7 +60,6 @@ async function sendSealTx(partyAWallet, partyBWallet, pdfHash) {
         return { txId: data.txid, payload };
     }
 
-    // Check if this is an "already in mempool" error — TX actually succeeded
     const errorStr = typeof data.error === 'string' ? data.error : JSON.stringify(data.error || '');
     const mempoolTxId = extractMempoolTxId(errorStr);
     if (mempoolTxId) {
@@ -80,4 +70,124 @@ async function sendSealTx(partyAWallet, partyBWallet, pdfHash) {
     throw new Error(data.error || 'Keystone transaction failed');
 }
 
-module.exports = { sendSealTx, buildPayload };
+
+// ─────────────────────────────────────────────
+// ON-CHAIN FILE EMBEDDING
+// ─────────────────────────────────────────────
+
+/**
+ * Request Keystone to embed a file on the blockDAG.
+ * 
+ * Sends the file as base64 to Keystone's embed-file endpoint.
+ * Keystone chunks it, submits transactions, and returns a job ID.
+ * The caller polls checkEmbedStatus() for progress.
+ * 
+ * @param {Buffer} fileBuffer - The raw PDF file
+ * @param {Object} metadata - Document metadata for the manifest
+ * @param {string} metadata.title - Document title
+ * @param {string} metadata.fileName - Original filename
+ * @param {string} metadata.fileHash - SHA-256 hex of the file
+ * @param {number} metadata.fileSize - File size in bytes
+ * @param {string} metadata.creatorAddress - Creator's Kaspa address
+ * @param {string|null} metadata.counterpartyAddress - Counterparty's address
+ * @param {string|null} metadata.creatorSignature - Creator's Schnorr sig (JSON string)
+ * @param {string|null} metadata.counterpartySignature - Counterparty's Schnorr sig (JSON string)
+ * @param {string|null} metadata.note - Optional note
+ * @returns {Promise<{ jobId: string, estimatedChunks: number, estimatedCostKas: number }>}
+ */
+async function requestFileEmbed(fileBuffer, metadata) {
+    if (!KEYSTONE_API_URL || !KEYSTONE_API_KEY) {
+        throw new Error('Keystone API not configured');
+    }
+
+    const response = await fetch(`${KEYSTONE_API_URL}/api/notary/embed-file`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Notary-Secret': KEYSTONE_API_KEY
+        },
+        body: JSON.stringify({
+            fileBase64: fileBuffer.toString('base64'),
+            title: metadata.title,
+            fileName: metadata.fileName,
+            fileHash: metadata.fileHash,
+            fileSize: metadata.fileSize,
+            fileType: metadata.fileType || 'application/pdf',
+            creatorAddress: metadata.creatorAddress,
+            counterpartyAddress: metadata.counterpartyAddress || null,
+            creatorSignature: metadata.creatorSignature || null,
+            counterpartySignature: metadata.counterpartySignature || null,
+            note: metadata.note || null,
+        })
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Keystone embed-file failed (${response.status}): ${text}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.success) {
+        throw new Error(data.error || 'Keystone embed-file request failed');
+    }
+
+    return {
+        jobId: data.jobId,
+        estimatedChunks: data.estimatedChunks || null,
+        estimatedCostKas: data.estimatedCostKas || null,
+    };
+}
+
+
+/**
+ * Check the status of a file embedding job on Keystone.
+ * 
+ * @param {string} jobId - The job ID returned by requestFileEmbed
+ * @returns {Promise<EmbedStatus>}
+ * 
+ * @typedef {Object} EmbedStatus
+ * @property {string} status - 'pending' | 'embedding' | 'confirmed' | 'failed'
+ * @property {number|null} chunksCompleted - Number of chunks submitted so far
+ * @property {number|null} chunksTotal - Total chunks expected
+ * @property {string|null} manifestTxId - Manifest TX ID (set when confirmed)
+ * @property {string[]|null} chunkTxIds - Array of chunk TX IDs (set when confirmed)
+ * @property {number|null} actualCostKas - Actual cost in KAS (set when confirmed)
+ * @property {string|null} error - Error message (set when failed)
+ */
+async function checkEmbedStatus(jobId) {
+    if (!KEYSTONE_API_URL || !KEYSTONE_API_KEY) {
+        throw new Error('Keystone API not configured');
+    }
+
+    const response = await fetch(`${KEYSTONE_API_URL}/api/notary/embed-status/${encodeURIComponent(jobId)}`, {
+        method: 'GET',
+        headers: {
+            'X-Notary-Secret': KEYSTONE_API_KEY
+        }
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Keystone embed-status failed (${response.status}): ${text}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.success) {
+        throw new Error(data.error || 'Keystone embed-status request failed');
+    }
+
+    return {
+        status: data.status,
+        chunksCompleted: data.chunksCompleted ?? null,
+        chunksTotal: data.chunksTotal ?? null,
+        manifestTxId: data.manifestTxId || null,
+        chunkTxIds: data.chunkTxIds || null,
+        actualCostKas: data.actualCostKas ?? null,
+        error: data.error || null,
+    };
+}
+
+
+module.exports = { sendSealTx, buildPayload, requestFileEmbed, checkEmbedStatus };
