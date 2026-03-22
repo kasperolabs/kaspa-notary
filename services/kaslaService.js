@@ -1,19 +1,19 @@
 /**
- * Keystone Transaction Service - Seal TX + On-Chain File Embedding
+ * Kasla Transaction Service - Seal TX + On-Chain File Embedding
  * 
  * Seal payload (hash anchor):
  *   Two-party:       NOTARY:1|partyA_wallet|partyB_wallet|sha256_of_pdf
  *   Single-signer:   NOTARY:1|partyA_wallet|SELF|sha256_of_pdf
  * 
  * File embedding:
- *   Delegates to Keystone's notaryChain service which chunks the file
+ *   Delegates to Kasla's notaryChain service which chunks the file
  *   into ~22KB transactions, submits each sequentially, then submits
  *   a manifest transaction containing all chunk TXIDs.
- *   Keystone handles wallet management, UTXO sync, and retry logic.
+ *   Kasla handles wallet management, UTXO sync, and retry logic.
  */
 
-const KEYSTONE_API_URL = process.env.KEYSTONE_API_URL;
-const KEYSTONE_API_KEY = process.env.KEYSTONE_API_KEY;
+const KASLA_API_URL = process.env.KASLA_API_URL;
+const KASLA_API_KEY = process.env.KASLA_API_KEY;
 
 /**
  * Build the structured payload string
@@ -39,17 +39,17 @@ function extractMempoolTxId(errorMsg) {
  * This is the primary blockchain transaction in the notary flow.
  */
 async function sendSealTx(partyAWallet, partyBWallet, pdfHash) {
-    if (!KEYSTONE_API_URL || !KEYSTONE_API_KEY) {
-        throw new Error('Keystone API not configured - set KEYSTONE_API_URL and KEYSTONE_API_KEY in .env');
+    if (!KASLA_API_URL || !KASLA_API_KEY) {
+        throw new Error('Kasla API not configured - set KASLA_API_URL and KASLA_API_KEY in .env');
     }
 
     const payload = buildPayload(partyAWallet, partyBWallet, pdfHash);
 
-    const response = await fetch(`${KEYSTONE_API_URL}/api/notary/send-hash`, {
+    const response = await fetch(`${KASLA_API_URL}/api/notary/send-hash`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-Notary-Secret': KEYSTONE_API_KEY
+            'X-Notary-Secret': KASLA_API_KEY
         },
         body: JSON.stringify({ payload })
     });
@@ -67,7 +67,7 @@ async function sendSealTx(partyAWallet, partyBWallet, pdfHash) {
         return { txId: mempoolTxId, payload };
     }
 
-    throw new Error(data.error || 'Keystone transaction failed');
+    throw new Error(data.error || 'Kasla transaction failed');
 }
 
 
@@ -76,10 +76,10 @@ async function sendSealTx(partyAWallet, partyBWallet, pdfHash) {
 // ─────────────────────────────────────────────
 
 /**
- * Request Keystone to embed a file on the blockDAG.
+ * Request Kasla to embed a file on the blockDAG.
  * 
- * Sends the file as base64 to Keystone's embed-file endpoint.
- * Keystone chunks it, submits transactions, and returns a job ID.
+ * Sends the file as base64 to Kasla's embed-file endpoint.
+ * Kasla chunks it, submits transactions, and returns a job ID.
  * The caller polls checkEmbedStatus() for progress.
  * 
  * @param {Buffer} fileBuffer - The raw PDF file
@@ -96,15 +96,15 @@ async function sendSealTx(partyAWallet, partyBWallet, pdfHash) {
  * @returns {Promise<{ jobId: string, estimatedChunks: number, estimatedCostKas: number }>}
  */
 async function requestFileEmbed(fileBuffer, metadata) {
-    if (!KEYSTONE_API_URL || !KEYSTONE_API_KEY) {
-        throw new Error('Keystone API not configured');
+    if (!KASLA_API_URL || !KASLA_API_KEY) {
+        throw new Error('Kasla API not configured');
     }
 
-    const response = await fetch(`${KEYSTONE_API_URL}/api/notary/embed-file`, {
+    const response = await fetch(`${KASLA_API_URL}/api/notary/embed-file`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-Notary-Secret': KEYSTONE_API_KEY
+            'X-Notary-Secret': KASLA_API_KEY
         },
         body: JSON.stringify({
             fileBase64: fileBuffer.toString('base64'),
@@ -123,13 +123,13 @@ async function requestFileEmbed(fileBuffer, metadata) {
 
     if (!response.ok) {
         const text = await response.text();
-        throw new Error(`Keystone embed-file failed (${response.status}): ${text}`);
+        throw new Error(`Kasla embed-file failed (${response.status}): ${text}`);
     }
 
     const data = await response.json();
 
     if (!data.success) {
-        throw new Error(data.error || 'Keystone embed-file request failed');
+        throw new Error(data.error || 'Kasla embed-file request failed');
     }
 
     return {
@@ -141,7 +141,7 @@ async function requestFileEmbed(fileBuffer, metadata) {
 
 
 /**
- * Check the status of a file embedding job on Keystone.
+ * Check the status of a file embedding job on Kasla.
  * 
  * @param {string} jobId - The job ID returned by requestFileEmbed
  * @returns {Promise<EmbedStatus>}
@@ -156,26 +156,26 @@ async function requestFileEmbed(fileBuffer, metadata) {
  * @property {string|null} error - Error message (set when failed)
  */
 async function checkEmbedStatus(jobId) {
-    if (!KEYSTONE_API_URL || !KEYSTONE_API_KEY) {
-        throw new Error('Keystone API not configured');
+    if (!KASLA_API_URL || !KASLA_API_KEY) {
+        throw new Error('Kasla API not configured');
     }
 
-    const response = await fetch(`${KEYSTONE_API_URL}/api/notary/embed-status/${encodeURIComponent(jobId)}`, {
+    const response = await fetch(`${KASLA_API_URL}/api/notary/embed-status/${encodeURIComponent(jobId)}`, {
         method: 'GET',
         headers: {
-            'X-Notary-Secret': KEYSTONE_API_KEY
+            'X-Notary-Secret': KASLA_API_KEY
         }
     });
 
     if (!response.ok) {
         const text = await response.text();
-        throw new Error(`Keystone embed-status failed (${response.status}): ${text}`);
+        throw new Error(`Kasla embed-status failed (${response.status}): ${text}`);
     }
 
     const data = await response.json();
 
     if (!data.success) {
-        throw new Error(data.error || 'Keystone embed-status request failed');
+        throw new Error(data.error || 'Kasla embed-status request failed');
     }
 
     return {

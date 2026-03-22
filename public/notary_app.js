@@ -149,7 +149,7 @@
                     onConnect: function(u) {
                         // KasperoPay tells us which wallet was used
                         var wt = u.walletType || '';
-                        if (wt === 'keystone-ext' || wt === 'keystone') state.walletProvider = 'keystone';
+                        if (wt === 'kasla-ext' || wt === 'kasla') state.walletProvider = 'kasla';
                         else if (wt === 'kasware') state.walletProvider = 'kasware';
                         else if (wt === 'kastle') state.walletProvider = 'kastle';
                         else state.walletProvider = wt || 'unknown';
@@ -161,7 +161,7 @@
                 return;
             }
             detectWallet().then(function(addr) {
-                if (!addr) { toast('No Kaspa wallet detected. Install KasWare, Kastle, or Keystone extension.', 'error'); resolve(false); return; }
+                if (!addr) { toast('No Kaspa wallet detected. Install KasWare, Kastle, or Kasla extension.', 'error'); resolve(false); return; }
                 finishAuth(addr).then(resolve);
             }).catch(function(e) { toast('Wallet error: ' + e.message, 'error'); resolve(false); });
         });
@@ -170,7 +170,7 @@
     function detectWallet() {
         if (window.kasware) return window.kasware.requestAccounts().then(function(a) { state.walletProvider = 'kasware'; return a[0]; });
         if (window.kastle) return window.kastle.connect('mainnet').then(function() { return window.kastle.getAccount(); }).then(function(a) { state.walletProvider = 'kastle'; return a.address; });
-        if (window.keystone) return window.keystone.requestAccounts().then(function(a) { state.walletProvider = 'keystone'; return Array.isArray(a) ? a[0] : a; });
+        if (window.kasla) return window.kasla.requestAccounts().then(function(a) { state.walletProvider = 'kasla'; return Array.isArray(a) ? a[0] : a; });
         return Promise.resolve(null);
     }
 
@@ -193,8 +193,8 @@
                 return { signature: sig, publicKey: null };
             });
         }
-        if (p === 'keystone' && window.keystone && window.keystone.signMessage) {
-            return window.keystone.signMessage(message).then(function(sig) {
+        if (p === 'kasla' && window.kasla && window.kasla.signMessage) {
+            return window.kasla.signMessage(message).then(function(sig) {
                 return { signature: sig, publicKey: null };
             });
         }
@@ -844,6 +844,8 @@
     }
 
     function sigRow(label, addr, sig, at, email) {
+        // Defensive: parse if sig arrives as a JSON string
+        if (typeof sig === 'string') { try { sig = JSON.parse(sig); } catch(e) {} }
         var ok = !!sig;
         var c = ok ? 'signed' : 'waiting';
         var ic = ok ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20,6 9,17 4,12"/></svg>'
@@ -1274,7 +1276,7 @@
 
         source.addEventListener('manifest', function(e) {
             var d = JSON.parse(e.data);
-            titleEl.textContent = 'Retrieving "' + d.title + '" from blockDAG';
+            titleEl.textContent = 'Retrieving "' + d.title + '" from BlockDAG';
             detail.textContent = d.chunkCount + ' chunk' + (d.chunkCount > 1 ? 's' : '') + ' · ' + formatSize(d.fileSize);
             barWrap.classList.remove('hidden');
             txLine.classList.remove('hidden');
@@ -1316,7 +1318,7 @@
                     '<span class="recon-title">' + (d.verified ? 'Document retrieved &amp; verified' : 'Retrieved - hash mismatch') + '</span>' +
                 '</div>' +
                 '<div class="recon-detail">' +
-                    d.totalChunks + ' chunk' + (d.totalChunks > 1 ? 's' : '') + ' from the Kaspa blockDAG · SHA-256 ' + (d.verified ? '✓' : '✗') +
+                    d.totalChunks + ' chunk' + (d.totalChunks > 1 ? 's' : '') + ' from the Kaspa BlockDAG · SHA-256 ' + (d.verified ? '✓' : '✗') +
                 '</div>' +
                 '<div class="recon-detail mono" style="font-size:10px;margin-top:2px;opacity:0.7">' + d.fileHash + '</div>' +
                 '<a href="' + blobUrl + '" target="_blank" class="btn btn-sm" style="margin-top:10px;">Open Reconstructed PDF</a>';
@@ -1470,7 +1472,7 @@
                 summary += '<div class="sign-summary-item">Single-signature document</div>';
             }
             if ($('input-upload-chain').checked) {
-                summary += '<div class="sign-summary-item" style="color: var(--accent);">&#x26D3; Document will be embedded on the blockDAG</div>';
+                summary += '<div class="sign-summary-item" style="color: var(--accent);">&#x26D3; Document will be embedded on the BlockDAG</div>';
             }
             $('sign-summary').innerHTML = summary;
 

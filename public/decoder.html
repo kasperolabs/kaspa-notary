@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kaspa TX Decoder — @kaspafy/wallet-core</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c10;
+    --surface: #12151c;
+    --surface-2: #1a1e28;
+    --border: #252a36;
+    --accent: #49deb5;
+    --accent-dim: #49deb520;
+    --accent-glow: #49deb540;
+    --text: #e2e8f0;
+    --text-dim: #8892a4;
+    --text-muted: #545d6e;
+    --error: #f5534f;
+    --error-dim: #f5534f20;
+    --warn: #f0b232;
+    --warn-dim: #f0b23220;
+    --info: #5b9cf5;
+    --info-dim: #5b9cf520;
+    --purple: #a78bfa;
+    --purple-dim: #a78bfa20;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'DM Sans', -apple-system, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 60px 60px;
+    opacity: 0.12;
+    pointer-events: none;
+  }
+  .container {
+    position: relative;
+    z-index: 1;
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+  }
+  .header { margin-bottom: 40px; }
+  .header-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-dim);
+    border: 1px solid var(--accent-glow);
+    padding: 5px 12px;
+    border-radius: 4px;
+    margin-bottom: 16px;
+  }
+  .header h1 {
+    font-family: var(--mono);
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+  .header h1 span { color: var(--accent); }
+  .header p {
+    margin-top: 8px;
+    color: var(--text-dim);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  .input-group { display: flex; gap: 8px; margin-bottom: 12px; }
+  .txid-input {
+    flex: 1;
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .txid-input::placeholder { color: var(--text-muted); }
+  .txid-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+  .decode-btn {
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    border-radius: 8px;
+    padding: 14px 24px;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .decode-btn:hover:not(:disabled) {
+    background: #6ee8ca;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px var(--accent-glow);
+  }
+  .decode-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    margin-bottom: 32px;
+  }
+  .loader { display: none; align-items: center; gap: 12px; padding: 20px; color: var(--text-dim); font-size: 14px; }
+  .loader.active { display: flex; }
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .results { display: none; }
+  .results.active { display: block; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 16px;
+    animation: cardIn 0.3s ease-out both;
+  }
+  .card:nth-child(2) { animation-delay: 0.08s; }
+  @keyframes cardIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .card-header h3 {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .type-badge {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 4px 10px;
+    border-radius: 4px;
+    text-transform: uppercase;
+  }
+  .type-badge.kaspanotary-manifest { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent-glow); }
+  .type-badge.kaspanotary-chunk { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent-glow); }
+  .type-badge.notary-seal { background: #2563eb20; color: #60a5fa; border: 1px solid #2563eb40; }
+  .type-badge.krc20-inscription { background: var(--purple-dim); color: var(--purple); border: 1px solid #a78bfa40; }
+  .type-badge.structured { background: var(--info-dim); color: var(--info); border: 1px solid #5b9cf540; }
+  .type-badge.json { background: var(--warn-dim); color: var(--warn); border: 1px solid #f0b23240; }
+  .type-badge.text { background: #e2e8f010; color: var(--text-dim); border: 1px solid var(--border); }
+  .type-badge.hash { background: #f59e0b20; color: #f59e0b; border: 1px solid #f59e0b40; }
+  .type-badge.binary { background: var(--error-dim); color: var(--error); border: 1px solid #f5534f40; }
+  .type-badge.no-payload { background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); }
+  .card-body { padding: 18px; }
+  .field-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 16px;
+    align-items: baseline;
+  }
+  .field-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    padding: 3px 0;
+  }
+  .field-value {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    word-break: break-all;
+    padding: 3px 0;
+    line-height: 1.5;
+  }
+  .field-value a { color: var(--accent); text-decoration: none; }
+  .field-value a:hover { text-decoration: underline; }
+  .field-value.dim { color: var(--text-dim); }
+  .field-value.success { color: var(--accent); }
+  .decoded-block {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    margin-top: 8px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.6;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  .decoded-block::-webkit-scrollbar { width: 6px; }
+  .decoded-block::-webkit-scrollbar-track { background: transparent; }
+  .decoded-block::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .hl-key { color: var(--accent); }
+  .hl-str { color: #f0b232; }
+  .hl-num { color: #a78bfa; }
+  .hl-bool { color: #f5534f; }
+  .error-card {
+    background: var(--error-dim);
+    border: 1px solid #f5534f40;
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+  .error-card h3 { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--error); margin-bottom: 6px; }
+  .error-card p { font-size: 13px; color: var(--text-dim); line-height: 1.5; }
+  .manifest-highlight {
+    background: var(--accent-dim);
+    border: 1px solid var(--accent-glow);
+    border-radius: 6px;
+    padding: 14px;
+    margin-bottom: 14px;
+  }
+  .manifest-highlight .mh-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .manifest-highlight .mh-value {
+    font-family: var(--sans);
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.3;
+  }
+  .manifest-highlight .mh-sub {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+  .seal-highlight {
+    background: #2563eb12;
+    border: 1px solid #2563eb30;
+    border-radius: 6px;
+    padding: 14px;
+    margin-bottom: 14px;
+  }
+  .seal-highlight .sh-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #60a5fa;
+    margin-bottom: 8px;
+  }
+  .seal-highlight .sh-value {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.8;
+    word-break: break-all;
+  }
+  .seal-highlight .sh-label {
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+  }
+  @media (max-width: 600px) {
+    .container { padding: 24px 16px 60px; }
+    .header h1 { font-size: 22px; }
+    .input-group { flex-direction: column; }
+    .decode-btn { width: 100%; padding: 14px; text-align: center; }
+    .field-grid { grid-template-columns: 1fr; gap: 2px 0; }
+    .field-label { padding-top: 10px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="header-badge">◆ @kaspafy/wallet-core</div>
+    <h1>TX Payload <span>Decoder</span></h1>
+    <p>Paste a Kaspa transaction ID to fetch and decode its payload. Detects kaspanotary manifests &amp; chunks, notary seal transactions, KRC-20 inscriptions, structured data, hashes, and plain text.</p>
+  </div>
+  <div class="input-group">
+    <input type="text" class="txid-input" id="txidInput" placeholder="Paste transaction ID…" spellcheck="false" autocomplete="off">
+    <button class="decode-btn" id="decodeBtn" onclick="decodeTx()">DECODE</button>
+  </div>
+  <div class="hint">Enter a full Kaspa TXID (64 hex characters) — fetches from api.kaspa.org</div>
+  <div class="loader" id="loader"><div class="spinner"></div><span id="loaderText">Fetching transaction…</span></div>
+  <div class="results" id="results"></div>
+</div>
+<script>
+const API = 'https://api.kaspa.org';
+
+document.getElementById('txidInput').addEventListener('keydown', e => { if (e.key === 'Enter') decodeTx(); });
+
+async function decodeTx() {
+  const input = document.getElementById('txidInput');
+  const btn = document.getElementById('decodeBtn');
+  const loader = document.getElementById('loader');
+  const loaderText = document.getElementById('loaderText');
+  const results = document.getElementById('results');
+  const txId = input.value.trim();
+  if (!txId) return input.focus();
+
+  results.className = 'results';
+  results.innerHTML = '';
+  loader.className = 'loader active';
+  loaderText.textContent = 'Fetching transaction…';
+  btn.disabled = true;
+
+  try {
+    const resp = await fetch(`${API}/transactions/${txId}?inputs=true&outputs=true&resolve_previous_outpoints=light`);
+    if (!resp.ok) {
+      if (resp.status === 404) throw new Error('Transaction not found. Check the TXID and try again.');
+      throw new Error(`API returned ${resp.status}: ${resp.statusText}`);
+    }
+    const tx = await resp.json();
+    loaderText.textContent = 'Decoding payload…';
+
+    // ── THE KEY FIX: payload is a top-level field on the TX object ──
+    const payloadHex = tx.payload || '';
+    const txInfo = extractTxInfo(tx);
+    const isEmptyPayload = !payloadHex || /^0+$/.test(payloadHex);
+    const decoded = isEmptyPayload ? null : decode(payloadHex);
+
+    loader.className = 'loader';
+    results.className = 'results active';
+    results.innerHTML = renderTxInfo(txId, txInfo) + renderDecoded(decoded, payloadHex);
+  } catch (err) {
+    loader.className = 'loader';
+    results.className = 'results active';
+    results.innerHTML = `<div class="error-card"><h3>Decode Failed</h3><p>${esc(err.message)}</p></div>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function extractTxInfo(tx) {
+  const info = { blockTime: null, isAccepted: null, mass: tx.mass || null,
+    inputCount: tx.inputs ? tx.inputs.length : 0, outputCount: tx.outputs ? tx.outputs.length : 0, totalOutputKas: 0 };
+  if (tx.verbose_data) info.blockTime = tx.verbose_data.block_time;
+  if (typeof tx.is_accepted !== 'undefined') info.isAccepted = tx.is_accepted;
+  if (tx.outputs) for (const o of tx.outputs) info.totalOutputKas += parseInt(o.amount || '0');
+  info.totalOutputKas /= 100_000_000;
+  return info;
+}
+
+// ═══════════════════════════════════════════
+//  DECODER — matches kaspanotary protocol
+// ═══════════════════════════════════════════
+
+function decode(hex) {
+  try {
+    const bytes = hexToBytes(hex);
+
+    // 1. kaspanotary binary header
+    const notary = tryKaspanotary(bytes);
+    if (notary) return notary;
+
+    // 2. Structured pipe-delimited (NOTARY:1|..., etc)
+    const structured = tryStructured(bytes);
+    if (structured) return structured;
+
+    // 3. JSON / KRC-20
+    const json = tryJson(bytes);
+    if (json) return json;
+
+    // 4. Exactly 32 bytes = SHA-256 hash
+    if (bytes.length === 32) return { type: 'hash', data: { hash: bytesToHex(bytes) }, byteSize: 32 };
+
+    // 5. Text (>80% printable ASCII)
+    const text = tryText(bytes);
+    if (text) return text;
+
+    // 6. Binary
+    return { type: 'binary', data: { preview: bytesToHex(bytes).substring(0, 200) + (bytes.length > 100 ? '…' : '') }, byteSize: bytes.length };
+  } catch (e) {
+    return { type: 'binary', data: { preview: hex.substring(0, 200), error: e.message }, byteSize: hex.length / 2 };
+  }
+}
+
+/**
+ * kaspanotary protocol header (from reconstructService.js parsePayload):
+ *   [1 byte]   tag length
+ *   [N bytes]  tag string ("kaspanotary")
+ *   [1 byte]   version
+ *   [1 byte]   type: 0x01 = data chunk, 0x02 = manifest
+ *   [2 bytes]  chunk index (uint16 LE)
+ *   [2 bytes]  total chunks (uint16 LE)
+ *   [32 bytes] file SHA-256 hash
+ *   [rest]     payload data (manifest JSON or chunk file bytes)
+ */
+function tryKaspanotary(bytes) {
+  if (bytes.length < 5) return null;
+  const tagLen = bytes[0];
+  if (tagLen === 0 || tagLen > 30 || bytes.length < 1 + tagLen + 2) return null;
+  const tag = bytesToStr(bytes.slice(1, 1 + tagLen));
+  if (tag !== 'kaspanotary') return null;
+
+  let off = 1 + tagLen;
+  const version = bytes[off++];
+  const type = bytes[off++];
+  const EXTRA = 2 + 2 + 32; // chunkIndex + totalChunks + fileHash
+
+  if (bytes.length < off + EXTRA) return null;
+
+  const chunkIndex  = bytes[off] | (bytes[off+1] << 8); off += 2;
+  const totalChunks = bytes[off] | (bytes[off+1] << 8); off += 2;
+  const fileHash    = bytesToHex(bytes.slice(off, off + 32)); off += 32;
+  const data        = bytes.slice(off);
+
+  if (type === 0x02) {
+    // MANIFEST — rest is JSON
+    const jsonStr = bytesToStr(data);
+    let manifest = {};
+    try { manifest = JSON.parse(jsonStr.trim()); }
+    catch {
+      const m = jsonStr.match(/\{[\s\S]*\}/);
+      if (m) { try { manifest = JSON.parse(m[0]); } catch { manifest = extractFields(jsonStr); } }
+      else { manifest = extractFields(jsonStr); }
+    }
+    return { type: 'kaspanotary-manifest', data: { protocol: 'kaspanotary', version, headerFileHash: fileHash, headerChunkIndex: chunkIndex, headerTotalChunks: totalChunks, ...manifest }, byteSize: bytes.length, jsonStr };
+  }
+
+  if (type === 0x01) {
+    return { type: 'kaspanotary-chunk', data: { protocol: 'kaspanotary', version, chunkIndex, totalChunks, fileHash, dataBytes: data.length }, byteSize: bytes.length };
+  }
+
+  return null;
+}
+
+function tryStructured(bytes) {
+  let str; try { str = bytesToStr(bytes); } catch { return null; }
+  if (!str || str.length < 4) return null;
+  const m = str.match(/^([A-Z_][A-Z0-9_]*):(\d+)\|(.+)/);
+  if (!m) return null;
+  const [, protocol, version, raw] = m;
+  const fields = raw.split('|');
+
+  if (protocol === 'NOTARY') {
+    const r = { type: 'notary-seal', data: { protocol, version: +version, fields, raw: str }, byteSize: bytes.length };
+    if (fields.length >= 3) {
+      r.data.partyA = fields[0]; r.data.partyB = fields[1] === 'SELF' ? null : fields[1];
+      r.data.singleSigner = fields[1] === 'SELF'; r.data.documentHash = fields[2];
+    }
+    return r;
+  }
+  return { type: 'structured', data: { protocol, version: +version, fields, raw: str }, byteSize: bytes.length };
+}
+
+function tryJson(bytes) {
+  let s; try { s = bytesToStr(bytes); } catch { return null; }
+  const t = s.trim();
+  if (!t.startsWith('{') && !t.startsWith('[')) return null;
+  try {
+    const o = JSON.parse(t);
+    return o && o.p === 'krc-20'
+      ? { type: 'krc20-inscription', data: o, byteSize: bytes.length }
+      : { type: 'json', data: o, byteSize: bytes.length };
+  } catch { return null; }
+}
+
+function tryText(bytes) {
+  let s; try { s = bytesToStr(bytes); } catch { return null; }
+  let p = 0;
+  for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); if ((c >= 32 && c <= 126) || c === 10 || c === 13 || c === 9) p++; }
+  return s.length > 0 && p / s.length > 0.8 ? { type: 'text', data: { text: s }, byteSize: bytes.length } : null;
+}
+
+function extractFields(text) {
+  const f = {}, pats = {
+    fileName: /fileName['":\s]+([^"',}\n]+)/i, fileType: /fileType['":\s]+([^"',}\n]+)/i,
+    fileSize: /fileSize['":\s]+(\d+)/i, title: /title['":\s]+([^"',}\n]+)/i,
+    fileHash: /fileHash['":\s]+([a-f0-9]{64})/i, chunkCount: /chunkCount['":\s]+(\d+)/i,
+    note: /note['":\s]+([^"',}\n]+)/i, creatorAddress: /creatorAddress['":\s]+(kaspa:[a-z0-9]+)/i,
+    counterpartyAddress: /counterpartyAddress['":\s]+(kaspa:[a-z0-9]+)/i,
+  };
+  for (const [k, rx] of Object.entries(pats)) { const m = text.match(rx); if (m) f[k] = m[1].trim(); }
+  return f;
+}
+
+// ═══════════════════════════════════════════
+//  RENDERING
+// ═══════════════════════════════════════════
+
+function renderTxInfo(txId, info) {
+  const time = info.blockTime ? new Date(info.blockTime).toLocaleString() : 'Pending';
+  const acc = info.isAccepted === true ? '✓ Accepted' : info.isAccepted === false ? '✗ Not accepted' : '—';
+  const accCls = info.isAccepted === true ? 'success' : info.isAccepted === false ? 'error-text' : 'dim';
+  return `<div class="card"><div class="card-header"><h3>Transaction</h3></div><div class="card-body"><div class="field-grid">
+    <span class="field-label">TXID</span><span class="field-value"><a href="https://explorer.kaspa.org/txs/${txId}" target="_blank">${txId}</a></span>
+    <span class="field-label">Time</span><span class="field-value">${time}</span>
+    <span class="field-label">Status</span><span class="field-value ${accCls}">${acc}</span>
+    <span class="field-label">Inputs / Outputs</span><span class="field-value">${info.inputCount} → ${info.outputCount}</span>
+    <span class="field-label">Total Output</span><span class="field-value">${info.totalOutputKas.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:8})} KAS</span>
+    ${info.mass?`<span class="field-label">Mass</span><span class="field-value dim">${info.mass.toLocaleString()}</span>`:''}</div></div></div>`;
+}
+
+function renderDecoded(decoded, payloadHex) {
+  if (!decoded) {
+    return `<div class="card"><div class="card-header"><h3>Payload</h3><span class="type-badge no-payload">No Payload</span></div>
+      <div class="card-body"><span class="field-value dim">No embedded payload detected in this transaction.</span></div></div>`;
+  }
+
+  const badge = `<span class="type-badge ${decoded.type}">${decoded.type.replace(/-/g,' ')}</span>`;
+  let b = `<div class="field-grid" style="margin-bottom:12px">
+    <span class="field-label">Payload Size</span>
+    <span class="field-value dim">${decoded.byteSize?.toLocaleString()||'?'} bytes (${fmtSize(decoded.byteSize)})</span></div>`;
+
+  switch (decoded.type) {
+    case 'kaspanotary-manifest': b += renderManifest(decoded); break;
+    case 'kaspanotary-chunk': b += renderChunk(decoded); break;
+    case 'notary-seal': b += renderSeal(decoded); break;
+    case 'krc20-inscription': b += renderKrc20(decoded.data); break;
+    case 'structured': b += renderStructured(decoded); break;
+    case 'json': b += `<div class="decoded-block">${synHL(JSON.stringify(decoded.data,null,2))}</div>`; break;
+    case 'text': b += `<div class="decoded-block">${esc(decoded.data.text)}</div>`; break;
+    case 'hash': b += `<div class="field-grid"><span class="field-label">SHA-256</span><span class="field-value" style="color:var(--warn)">${decoded.data.hash}</span></div>`; break;
+    case 'binary': b += `<div class="decoded-block" style="color:var(--text-dim)">${esc(decoded.data.preview)}</div>`; break;
+  }
+
+  // Raw hex toggle
+  if (payloadHex) {
+    b += `<details style="margin-top:12px"><summary style="cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--text-muted);letter-spacing:0.04em;text-transform:uppercase">Raw Hex (${fmtSize(payloadHex.length/2)})</summary>
+      <div class="decoded-block" style="margin-top:6px;font-size:11px;color:var(--text-muted);max-height:200px">${esc(payloadHex)}</div></details>`;
+  }
+
+  return `<div class="card"><div class="card-header"><h3>Payload</h3>${badge}</div><div class="card-body">${b}</div></div>`;
+}
+
+function renderManifest(dec) {
+  const d = dec.data;
+  let h = '';
+  if (d.title || d.fileName) {
+    h += `<div class="manifest-highlight">`;
+    if (d.title) h += `<div class="mh-title">Document Title</div><div class="mh-value">${esc(d.title)}</div>`;
+    if (d.fileName) h += `<div class="mh-sub">${esc(d.fileName)}${d.fileType?' ('+esc(d.fileType)+')':''}${d.fileSize?' · '+fmtSize(d.fileSize):''}</div>`;
+    h += `</div>`;
+  }
+  h += `<div class="field-grid">`;
+  const show = ['version','headerFileHash','fileHash','fileSize','chunkCount','headerChunkIndex','headerTotalChunks',
+    'creatorAddress','counterpartyAddress','creatorSignature','counterpartySignature','timestamp','note'];
+  for (const k of show) {
+    if (d[k] === undefined || d[k] === null) continue;
+    h += `<span class="field-label">${esc(fmtLabel(k))}</span><span class="field-value">${esc(typeof d[k]==='object'?JSON.stringify(d[k]):String(d[k]))}</span>`;
+  }
+  if (d.chunkTxIds && Array.isArray(d.chunkTxIds)) {
+    h += `<span class="field-label">Chunk TXs</span><span class="field-value">${d.chunkTxIds.map((id,i)=>
+      `<a href="https://explorer.kaspa.org/txs/${id}" target="_blank">#${i+1} ${id.slice(0,12)}…${id.slice(-6)}</a>`).join('<br>')}</span>`;
+  }
+  const shown = new Set([...show,'protocol','title','fileName','fileType','chunkTxIds']);
+  for (const [k,v] of Object.entries(d)) { if (!shown.has(k)&&v!=null) h += `<span class="field-label">${esc(fmtLabel(k))}</span><span class="field-value dim">${esc(typeof v==='object'?JSON.stringify(v):String(v))}</span>`; }
+  h += `</div>`;
+  if (dec.jsonStr) {
+    h += `<details style="margin-top:12px"><summary style="cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--text-muted);letter-spacing:0.04em;text-transform:uppercase">Manifest JSON</summary>
+      <div class="decoded-block" style="margin-top:6px">${synHL(prettyJson(dec.jsonStr))}</div></details>`;
+  }
+  return h;
+}
+
+function renderChunk(dec) {
+  const d = dec.data;
+  return `<div class="field-grid">
+    <span class="field-label">Version</span><span class="field-value">${d.version}</span>
+    <span class="field-label">Chunk</span><span class="field-value">${d.chunkIndex+1} of ${d.totalChunks}</span>
+    <span class="field-label">File Hash</span><span class="field-value dim">${d.fileHash}</span>
+    <span class="field-label">Data Size</span><span class="field-value dim">${d.dataBytes?.toLocaleString()} bytes</span></div>`;
+}
+
+function renderSeal(dec) {
+  const d = dec.data;
+  let h = `<div class="seal-highlight"><div class="sh-title">${d.singleSigner?'Single-Signer Seal':'Two-Party Notary Seal'}</div><div class="sh-value">
+    <span class="sh-label">Party A</span><br>${esc(d.partyA||'—')}<br><br>`;
+  if (!d.singleSigner && d.partyB) h += `<span class="sh-label">Party B</span><br>${esc(d.partyB)}<br><br>`;
+  else if (d.singleSigner) h += `<span class="sh-label">Mode</span><br>SELF (single signer)<br><br>`;
+  if (d.documentHash) h += `<span class="sh-label">Document Hash (SHA-256)</span><br><span style="color:var(--warn)">${esc(d.documentHash)}</span>`;
+  h += `</div></div>`;
+  h += `<div class="field-grid"><span class="field-label">Protocol</span><span class="field-value">${esc(d.protocol)}:${d.version}</span>
+    <span class="field-label">Raw</span><span class="field-value dim">${esc(d.raw)}</span></div>`;
+  return h;
+}
+
+function renderKrc20(d) {
+  let h = `<div class="field-grid" style="margin-bottom:8px">
+    <span class="field-label">Protocol</span><span class="field-value">${esc(d.p||'')}</span>
+    <span class="field-label">Operation</span><span class="field-value" style="color:var(--accent)">${esc(d.op||'')}</span>`;
+  if (d.tick) h += `<span class="field-label">Ticker</span><span class="field-value" style="font-weight:700">${esc(d.tick)}</span>`;
+  if (d.amt) h += `<span class="field-label">Amount</span><span class="field-value">${esc(d.amt)}</span>`;
+  if (d.max) h += `<span class="field-label">Max Supply</span><span class="field-value">${esc(d.max)}</span>`;
+  if (d.lim) h += `<span class="field-label">Limit</span><span class="field-value">${esc(d.lim)}</span>`;
+  if (d.to) h += `<span class="field-label">To</span><span class="field-value">${esc(d.to)}</span>`;
+  h += `</div><div class="decoded-block">${synHL(JSON.stringify(d,null,2))}</div>`;
+  return h;
+}
+
+function renderStructured(dec) {
+  const d = dec.data;
+  return `<div class="field-grid" style="margin-bottom:8px">
+    <span class="field-label">Protocol</span><span class="field-value" style="color:var(--info)">${esc(d.protocol)}:${d.version}</span>
+    <span class="field-label">Fields</span><span class="field-value">${d.fields.length}</span></div>
+    <div class="decoded-block">${esc(d.raw)}</div>`;
+}
+
+// ═══════════════════════════════════════════
+//  UTILITIES
+// ═══════════════════════════════════════════
+
+function hexToBytes(h) { const b = new Uint8Array(h.length/2); for (let i=0;i<h.length;i+=2) b[i/2]=parseInt(h.substr(i,2),16); return b; }
+function bytesToHex(b) { return Array.from(b).map(x=>x.toString(16).padStart(2,'0')).join(''); }
+function bytesToStr(b) { return new TextDecoder('utf-8',{fatal:false}).decode(b instanceof Uint8Array?b:new Uint8Array(b)); }
+function esc(s) { const d=document.createElement('div'); d.textContent=String(s); return d.innerHTML; }
+function synHL(j) { return esc(j).replace(/"([^"]+)":/g,'<span class="hl-key">"$1"</span>:').replace(/: "([^"]*?)"/g,': <span class="hl-str">"$1"</span>').replace(/: (\d+)/g,': <span class="hl-num">$1</span>').replace(/: (true|false|null)/g,': <span class="hl-bool">$1</span>'); }
+function prettyJson(s) { try { return JSON.stringify(JSON.parse(s.trim()),null,2); } catch { return s; } }
+function fmtSize(b) { if (!b) return '0 B'; if (b<1024) return b+' B'; if (b<1048576) return (b/1024).toFixed(1)+' KB'; return (b/1048576).toFixed(2)+' MB'; }
+function fmtLabel(c) { return c.replace(/([A-Z])/g,' $1').replace(/^./,s=>s.toUpperCase()).trim(); }
+</script>
+</body>
+</html>

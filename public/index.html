@@ -8,6 +8,19 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/notary_styles.css">
+	<!-- Open Graph -->
+	<meta property="og:image" content="https://kaspanotary.com/preview.png" />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
+	<meta property="og:type" content="website" />
+	<meta property="og:title" content="KaspaNotary" />
+	<meta property="og:description" content="Blockchain-powered document notarization on the Kaspa network" />
+
+	<!-- Twitter Card -->
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:image" content="https://kaspanotary.com/preview.png" />
+	<meta name="twitter:title" content="KaspaNotary" />
+	<meta name="twitter:description" content="Blockchain-powered document notarization on the Kaspa network" />
 </head>
 <body>
 
@@ -38,7 +51,7 @@
         <div class="nav-group" id="nav-public">
             <button class="nav-item" id="nav-how">How it Works</button>
             <button class="nav-item active" id="nav-archive">Archive</button>
-            <button class="nav-item" id="nav-hash">Hash a File</button>
+            <button class="nav-item" id="nav-hash">Check File Hash</button>
         </div>
         <!-- Auth nav - visible when connected -->
         <div class="nav-group hidden" id="nav-auth">
@@ -138,7 +151,7 @@
                         </div>
                         <div class="how-card">
                             <h4>Works with any wallet</h4>
-                            <p>KasWare, Kastle, Keystone, or any Kaspa wallet. No special account or software required.</p>
+                            <p>KasWare, Kastle, Kasla, or any Kaspa wallet. No special account or software required.</p>
                         </div>
                     </div>
                 </div>
@@ -229,7 +242,7 @@
                         </div>
                         <div class="faq-item">
                             <h4>What Kaspa wallet do I need?</h4>
-                            <p>Any Kaspa wallet works - KasWare, Kastle, Keystone, or mobile wallets. You just need to connect it to sign. The counterparty can use a completely different wallet.</p>
+                            <p>Any Kaspa wallet works - KasWare, Kastle, Kasla, or mobile wallets. You just need to connect it to sign. The counterparty can use a completely different wallet.</p>
                         </div>
                         <div class="faq-item">
                             <h4>How much does it cost?</h4>
@@ -251,8 +264,14 @@
         <!-- ============ PUBLIC ARCHIVE ============ -->
         <section class="screen" id="screen-archive">
             <div class="archive-hero">
+                <div class="archive-hero-icon">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                        <polyline points="9,12 11,14 15,10"/>
+                    </svg>
+                </div>
                 <h1>Kaspa Notary</h1>
-                <p class="archive-sub">Seal agreements on the Kaspa blockchain. Immutable proof that cannot be backdated.</p>
+                <p class="archive-sub">Seal agreements on the Kaspa blockchain.<br>Immutable proof that cannot be backdated.</p>
                 <p class="archive-hint" id="archive-hint">Connect a wallet to create and manage your own documents.</p>
             </div>
 
@@ -308,7 +327,7 @@
         <!-- ============ HASH A FILE (public tool) ============ -->
         <section class="screen hidden" id="screen-hash">
             <div class="hash-page">
-                <h1>Hash a File</h1>
+                <h1>Check File Hash</h1>
                 <p class="hash-intro">Drop any PDF to see its SHA-256 fingerprint. This hash is unique to the file - change a single byte and it changes completely. No data leaves your browser.</p>
 
                 <div class="upload-zone" id="hash-upload-zone">
@@ -934,11 +953,11 @@
     <!-- KasperoPay widget (hidden mode - triggered programmatically) -->
     <div id="kaspero-pay-button"
          data-merchant="kpm_jyrajkk8"
-         data-wallets="kasware,kastle,keystone,mobile,kasanova,qrcode"
+         data-wallets="kasware,kastle,kasla,mobile,kasanova,qrcode"
          data-style="institutional"
          style="display:none">
     </div>
-    <script src="https://kaspa-store.com/pay/widget.js"></script>
+    <script src="https://kaspa-store.com/k-pay.js"></script>
 
     <script src="/notary_app.js"></script>
 </body>

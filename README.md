@@ -32,7 +32,7 @@ The document itself is **never** on-chain — only its hash. The blockchain prov
 
 - **Backend:** Node.js / Express / MySQL
 - **Frontend:** Vanilla JS (single-page app)
-- **Blockchain:** Kaspa (via Keystone API for seal transactions)
+- **Blockchain:** Kaspa (via Kasla API for seal transactions)
 - **Payments:** KasperoPay widget
 - **PDF rendering:** pdf.js (frontend)
 
@@ -42,7 +42,7 @@ KaspaNotary is wallet-agnostic. Any Kaspa wallet works:
 
 - KasWare (browser extension)
 - Kastle (browser extension)
-- Keystone (browser extension or custodied account)
+- Kasla (browser extension or custodied account)
 - Mobile wallets (via KasperoPay QR flow)
 
 ## Status

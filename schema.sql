@@ -1,5 +1,5 @@
 -- KaspaNotary Database Schema
--- Standalone database — not shared with Keystone
+-- Standalone database — not shared with Kasla
 
 CREATE DATABASE IF NOT EXISTS kaspa_notary CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE kaspa_notary;

@@ -110,7 +110,7 @@ async function sendInviteEmail(to, { title, creatorAddress, note, inviteUrl }) {
             </div>
             
             <p style="margin: 0; font-size: 12px; color: #94a3b8; text-align: center;">
-                You'll need a Kaspa wallet (KasWare, Kastle, Keystone, etc.) to sign. No account required.
+                You'll need a Kaspa wallet (KasWare, Kastle, Kasla, etc.) to sign. No account required.
             </p>
         `;
 

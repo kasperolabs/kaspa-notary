@@ -2,7 +2,7 @@
  * KaspaNotary - Blockchain Document Reconstruction Service
  * 
  * Retrieves and reassembles documents from the Kaspa blockchain using
- * only the public REST API. No wallet, no RPC, no Keystone dependency.
+ * only the public REST API. No wallet, no RPC, no Kasla dependency.
  * 
  * Given a manifest transaction ID, this service:
  *   1. Fetches the manifest TX payload and parses the kaspanotary header

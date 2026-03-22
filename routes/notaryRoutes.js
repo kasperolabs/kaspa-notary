@@ -6,7 +6,7 @@ const path = require('path');
 const db = require('../db');
 const { requireAuth, optionalAuth, generateToken } = require('../middleware/auth');
 const notaryService = require('../services/notaryService');
-const keystoneService = require('../services/keystoneService');
+const kaslaService = require('../services/kaslaService');
 const emailService = require('../services/emailService');
 const audit = require('../services/auditService');
 const reconstructService = require('../services/reconstructService');
@@ -19,7 +19,7 @@ const NOTARY_FEE_KAS = parseFloat(process.env.NOTARY_FEE_KAS) || 5;
 // ─────────────────────────────────────────────
 
 /**
- * If the document has upload_to_chain enabled, request Keystone
+ * If the document has upload_to_chain enabled, request Kasla
  * to embed the actual file on the blockDAG. Runs asynchronously
  * after the seal TX has been confirmed - does not block the response.
  * 
@@ -51,7 +51,7 @@ async function triggerChainEmbed(docUuid, doc) {
         try { creatorSig = typeof doc.creator_signature === 'string' ? doc.creator_signature : JSON.stringify(doc.creator_signature); } catch (e) {}
         try { counterpartySig = typeof doc.counterparty_signature === 'string' ? doc.counterparty_signature : JSON.stringify(doc.counterparty_signature); } catch (e) {}
 
-        const embedResult = await keystoneService.requestFileEmbed(fileBuffer, {
+        const embedResult = await kaslaService.requestFileEmbed(fileBuffer, {
             title: doc.title,
             fileName: doc.title + '.pdf',
             fileHash: doc.original_hash,
@@ -708,7 +708,7 @@ router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
                 // Auto-seal: no counterparty needed
                 let sealResult = null;
                 try {
-                    sealResult = await keystoneService.sendSealTx(
+                    sealResult = await kaslaService.sendSealTx(
                         doc.creator_wallet_address,
                         null, // No Party B
                         doc.original_hash
@@ -750,7 +750,7 @@ router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
                         party: 'A',
                         status: 'pending_finalization',
                         single_signer: true,
-                        seal_error: 'Blockchain seal pending - will retry automatically'
+                        seal_error: 'BlockDAG seal pending - will retry automatically'
                     });
                 }
             }
@@ -816,7 +816,7 @@ router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
             // Auto-seal: both parties have signed, send the blockchain TX
             let sealResult = null;
             try {
-                sealResult = await keystoneService.sendSealTx(
+                sealResult = await kaslaService.sendSealTx(
                     doc.creator_wallet_address,
                     req.walletAddress,
                     doc.original_hash
@@ -863,7 +863,7 @@ router.post('/documents/:docUuid/sign', requireAuth, async (req, res) => {
                     success: true,
                     party: 'B',
                     status: 'pending_finalization',
-                    seal_error: 'Blockchain seal pending - will retry automatically'
+                    seal_error: 'BlockDAG seal pending - will retry automatically'
                 });
             }
         }
@@ -1158,7 +1158,7 @@ router.post('/documents/:docUuid/finalize', requireAuth, async (req, res) => {
         // Send seal transaction with structured payload
         let sealTx;
         try {
-            sealTx = await keystoneService.sendSealTx(
+            sealTx = await kaslaService.sendSealTx(
                 doc.creator_wallet_address,
                 doc.counterparty_wallet_address || null, // null for single-signer
                 doc.original_hash
@@ -1319,7 +1319,7 @@ router.get('/proof/:docUuid', async (req, res) => {
  * Called by frontend spinner while embedding is in progress.
  * 
  * If chain_status is 'embedding' and we have a job ID, we check
- * Keystone for updated progress. If Keystone reports confirmed,
+ * Kasla for updated progress. If Kasla reports confirmed,
  * we update our DB and return the final result.
  */
 router.get('/documents/:docUuid/chain-status', requireAuth, async (req, res) => {
@@ -1345,10 +1345,10 @@ router.get('/documents/:docUuid/chain-status', requireAuth, async (req, res) => 
             return res.json({ success: true, chain_status: 'none', upload_to_chain: false });
         }
 
-        // If still in progress and we have a job ID, poll Keystone
+        // If still in progress and we have a job ID, poll Kasla
         if ((doc.chain_status === 'embedding' || doc.chain_status === 'pending') && doc.chain_job_id) {
             try {
-                const status = await keystoneService.checkEmbedStatus(doc.chain_job_id);
+                const status = await kaslaService.checkEmbedStatus(doc.chain_job_id);
 
                 if (status.status === 'confirmed') {
                     // Embedding complete - update our DB
@@ -1390,7 +1390,7 @@ router.get('/documents/:docUuid/chain-status', requireAuth, async (req, res) => 
                     return res.json({
                         success: true,
                         chain_status: 'failed',
-                        error: status.error || 'Embedding failed on Keystone',
+                        error: status.error || 'Embedding failed on Kasla',
                     });
                 }
 
@@ -1408,7 +1408,7 @@ router.get('/documents/:docUuid/chain-status', requireAuth, async (req, res) => 
                 return res.json({
                     success: true,
                     chain_status: doc.chain_status,
-                    poll_error: 'Could not reach Keystone - will retry',
+                    poll_error: 'Could not reach Kasla - will retry',
                 });
             }
         }
@@ -1572,23 +1572,23 @@ router.get('/documents', requireAuth, async (req, res) => {
 
 
 // ─────────────────────────────────────────────
-// CHAIN EMBED WEBHOOK (Keystone → Notary)
+// CHAIN EMBED WEBHOOK (Kasla → Notary)
 // ─────────────────────────────────────────────
 
 /**
  * POST /api/webhook/chain-complete
- * Called by Keystone when a file embedding job finishes (success or failure).
+ * Called by Kasla when a file embedding job finishes (success or failure).
  * Closes the loop without depending on frontend polling.
  * 
- * Auth: X-Notary-Secret header (same shared secret as Keystone API calls)
+ * Auth: X-Notary-Secret header (same shared secret as Kasla API calls)
  * 
  * Body: { jobId, status, manifestTxId, chunkTxIds, chunkCount, actualCostKas, error }
  */
 router.post('/webhook/chain-complete', async (req, res) => {
     try {
-        // Authenticate with shared secret (same key Notary uses to call Keystone)
+        // Authenticate with shared secret (same key Notary uses to call Kasla)
         const secret = req.headers['x-notary-secret'];
-        const expectedSecret = process.env.KEYSTONE_API_KEY;
+        const expectedSecret = process.env.KASLA_API_KEY;
         if (!secret || !expectedSecret || secret !== expectedSecret) {
             return res.status(401).json({ error: 'Unauthorized' });
         }
